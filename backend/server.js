@@ -2,6 +2,7 @@ import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import path from 'path'
+import fs from 'fs'
 import { fileURLToPath } from 'url'
 import connectDB from './config/db.js'
 import authRoutes from './routes/auth.routes.js'
@@ -27,8 +28,15 @@ app.use(cors({
 }))
 app.use(express.json())
 
+// Ensure uploads directory exists on server startup
+const uploadsDir = path.join(__dirname, 'uploads')
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true })
+  console.log(`[Server] Created uploads directory at: ${uploadsDir}`)
+}
+
 // Serve uploads folder as static files
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')))
+app.use('/uploads', express.static(uploadsDir))
 
 // Routes
 app.use('/api/auth', authRoutes)

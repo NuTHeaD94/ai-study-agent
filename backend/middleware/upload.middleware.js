@@ -1,11 +1,20 @@
 import multer from 'multer'
 import path from 'path'
+import fs from 'fs'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // Define uploads folder
 const uploadsDir = path.join(__dirname, '../uploads')
+
+// Ensure uploads directory exists
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true })
+  console.log(`[Upload Middleware] Created uploads directory at: ${uploadsDir}`)
+} else {
+  console.log(`[Upload Middleware] Uploads directory exists at: ${uploadsDir}`)
+}
 
 // Storage configuration
 const storage = multer.diskStorage({
