@@ -17,7 +17,14 @@ connectDB()
 
 const app = express()
 
-app.use(cors())
+app.use(cors({
+  origin: [
+    'http://localhost:5173', 
+    'https://ai-study-agent-1z87.vercel.app', 
+    'http://localhost:3000'
+  ],
+  credentials: true
+}))
 app.use(express.json())
 
 // Serve uploads folder as static files
