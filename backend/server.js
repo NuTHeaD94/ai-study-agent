@@ -17,12 +17,12 @@ connectDB()
 
 const app = express()
 
+const allowedOrigins = process.env.CLIENT_URL 
+  ? process.env.CLIENT_URL.split(',') 
+  : ['http://localhost:5173', 'http://localhost:3000', 'https://ai-study-agent-1z87.vercel.app'];
+
 app.use(cors({
-  origin: [
-    'http://localhost:5173', 
-    'https://ai-study-agent-1z87.vercel.app', 
-    'http://localhost:3000'
-  ],
+  origin: allowedOrigins,
   credentials: true
 }))
 app.use(express.json())
