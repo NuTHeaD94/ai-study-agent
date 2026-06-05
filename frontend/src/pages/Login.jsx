@@ -24,7 +24,7 @@ export default function Login() {
       setUser({ _id, name, email })
 
       // Redirect to dashboard
-      navigate('/dashboard')
+      navigate('/dashboard', { replace: true })
     } catch (err) {
       const errorMsg = err.response?.data?.message || 'Login failed. Please try again.'
       setError(errorMsg)
