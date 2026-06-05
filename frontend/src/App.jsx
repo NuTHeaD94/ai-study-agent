@@ -4,12 +4,13 @@ import Register from './pages/Register'
 import Dashboard from './pages/Dashboard'
 import UploadPDF from './pages/UploadPDF'
 import ProtectedRoute from './components/ProtectedRoute'
+import { isAuthenticated } from './utils/auth'
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/" element={<Navigate to={isAuthenticated() ? "/dashboard" : "/login"} replace />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route
@@ -28,6 +29,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/upload-pdf" element={<Navigate to="/upload" replace />} />
       </Routes>
     </BrowserRouter>
   )
