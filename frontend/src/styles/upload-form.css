@@ -108,3 +108,21 @@
 .file-info strong {
   color: #333;
 }
+
+@media (max-width: 768px) {
+  .upload-form {
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+  
+  .file-label {
+    padding: 20px;
+    font-size: 14px;
+    text-align: center;
+  }
+  
+  .btn-upload {
+    padding: 10px 16px;
+    width: 100%;
+  }
+}

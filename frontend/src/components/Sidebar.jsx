@@ -25,7 +25,7 @@ export default function Sidebar() {
           <li key={to}>
             <NavLink to={to} className={({ isActive }) => isActive ? 'active' : ''}>
               <span className="icon">{icon}</span>
-              {label}
+              <span className="nav-label">{label}</span>
             </NavLink>
           </li>
         ))}
@@ -34,7 +34,7 @@ export default function Sidebar() {
       <div className="sidebar-logout">
         <a onClick={handleLogout}>
           <span className="icon">↩</span>
-          Logout
+          <span className="nav-label">Logout</span>
         </a>
       </div>
     </aside>
