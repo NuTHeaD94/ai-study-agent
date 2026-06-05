@@ -1,36 +1,93 @@
 import { Groq } from 'groq-sdk'
 
 let groq = null
-const DEFAULT_SUMMARY_MODEL = 'llama-3.3-70b-versatile'
+
+const DEFAULT_PDF_PRIMARY_PROVIDER = 'groq'
+const DEFAULT_PDF_PRIMARY_MODEL = 'llama-3.3-70b-versatile'
+const DEFAULT_PDF_FALLBACK_PROVIDER = 'gemini'
+const DEFAULT_PDF_FALLBACK_MODEL = 'gemma-4-31b-it'
+const DEFAULT_QUIZ_PROVIDER = 'gemini'
+const DEFAULT_QUIZ_MODEL = 'gemma-4-31b-it'
+const DEFAULT_CONCEPT_PROVIDER = 'gemini'
+const DEFAULT_CONCEPT_MODEL = 'gemma-4-31b-it'
+const DEFAULT_CHAT_PROVIDER = 'groq'
 const DEFAULT_CHAT_MODEL = 'llama-3.1-8b-instant'
+const DEFAULT_REQUEST_TIMEOUT_MS = 45000
+const DEFAULT_ERROR_MESSAGE = 'AI processing is temporarily unavailable. Please try again in a few minutes.'
+
+export class AIModelError extends Error {
+  constructor(message, details = {}) {
+    super(message)
+    this.name = 'AIModelError'
+    this.status = details.status || 503
+    this.details = details
+  }
+}
+
+export const AI_USER_FRIENDLY_ERROR = DEFAULT_ERROR_MESSAGE
+
+const getConfiguredModels = () => ({
+  pdfPrimary: {
+    provider: process.env.PDF_PRIMARY_PROVIDER || DEFAULT_PDF_PRIMARY_PROVIDER,
+    model: process.env.PDF_PRIMARY_MODEL || process.env.SUMMARY_MODEL || DEFAULT_PDF_PRIMARY_MODEL,
+  },
+  pdfFallback: {
+    provider: process.env.PDF_FALLBACK_PROVIDER || DEFAULT_PDF_FALLBACK_PROVIDER,
+    model: process.env.PDF_FALLBACK_MODEL || DEFAULT_PDF_FALLBACK_MODEL,
+  },
+  quiz: {
+    provider: process.env.QUIZ_PROVIDER || DEFAULT_QUIZ_PROVIDER,
+    model: process.env.QUIZ_MODEL || DEFAULT_QUIZ_MODEL,
+  },
+  concept: {
+    provider: process.env.CONCEPT_PROVIDER || DEFAULT_CONCEPT_PROVIDER,
+    model: process.env.CONCEPT_MODEL || DEFAULT_CONCEPT_MODEL,
+  },
+  chat: {
+    provider: process.env.CHAT_PROVIDER || DEFAULT_CHAT_PROVIDER,
+    model: process.env.CHAT_MODEL || DEFAULT_CHAT_MODEL,
+  },
+})
+
+const getRequestTimeout = () => {
+  const configuredTimeout = Number(process.env.AI_REQUEST_TIMEOUT_MS)
+  return Number.isFinite(configuredTimeout) && configuredTimeout > 0
+    ? configuredTimeout
+    : DEFAULT_REQUEST_TIMEOUT_MS
+}
+
+const getErrorSummary = (error) => {
+  const status = error?.status || error?.code || 'unknown'
+  const message = error?.message || 'Unknown error'
+  return `status=${status}; message=${message}`
+}
 
 const getGroqClient = () => {
   if (!process.env.GROQ_API_KEY) {
-    throw new Error('GROQ_API_KEY is not configured')
+    throw new AIModelError('GROQ_API_KEY is not configured', {
+      reason: 'missing-api-key',
+      status: 500,
+    })
   }
 
   if (!groq) {
     groq = new Groq({
       apiKey: process.env.GROQ_API_KEY,
+      timeout: getRequestTimeout(),
+      maxRetries: 1,
     })
   }
+
   return groq
 }
 
-const createCompletion = async (content, maxTokens, model) => {
-  const groqClient = getGroqClient()
+const messagesToPrompt = (messages = []) => {
+  return messages
+    .map((message) => `${message.role}: ${message.content}`)
+    .join('\n\n')
+}
 
-  const completion = await groqClient.chat.completions.create({
-    model: model || process.env.SUMMARY_MODEL || DEFAULT_SUMMARY_MODEL,
-    max_tokens: maxTokens,
-    messages: [
-      {
-        role: 'user',
-        content,
-      },
-    ],
-  })
-
+const readGroqCompletionText = (completion) => {
   const response = completion.choices?.[0]?.message?.content
   if (!response) {
     throw new Error('Groq returned an empty completion')
@@ -39,30 +96,226 @@ const createCompletion = async (content, maxTokens, model) => {
   return response
 }
 
+const readGeminiCompletionText = (data) => {
+  const response = data?.candidates?.[0]?.content?.parts
+    ?.map((part) => part.text)
+    .filter(Boolean)
+    .join('\n')
+
+  if (!response) {
+    throw new Error('Gemini returned an empty completion')
+  }
+
+  return response
+}
+
+const createGroqCompletion = async ({ taskName, content, maxTokens, model, messages }) => {
+  const groqClient = getGroqClient()
+
+  console.log(`[AI:${taskName}] Request started with provider=groq model=${model}`)
+  const completion = await groqClient.chat.completions.create({
+    model,
+    max_tokens: maxTokens,
+    messages: messages || [
+      {
+        role: 'user',
+        content,
+      },
+    ],
+  }, {
+    timeout: getRequestTimeout(),
+  })
+
+  const response = readGroqCompletionText(completion)
+  console.log(`[AI:${taskName}] Request completed with provider=groq model=${model}`)
+  return response
+}
+
+const createGeminiCompletion = async ({ taskName, content, maxTokens, model, messages }) => {
+  if (!process.env.GEMINI_API_KEY) {
+    throw new AIModelError('GEMINI_API_KEY is not configured', {
+      reason: 'missing-api-key',
+      status: 500,
+    })
+  }
+
+  if (typeof fetch !== 'function') {
+    throw new AIModelError('Global fetch is not available. Please run the backend on Node 18 or newer.', {
+      reason: 'fetch-unavailable',
+      status: 500,
+    })
+  }
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), getRequestTimeout())
+  const prompt = content || messagesToPrompt(messages)
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
+
+  try {
+    console.log(`[AI:${taskName}] Request started with provider=gemini model=${model}`)
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': process.env.GEMINI_API_KEY,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [{ text: prompt }],
+          },
+        ],
+        generationConfig: {
+          maxOutputTokens: maxTokens,
+        },
+      }),
+      signal: controller.signal,
+    })
+
+    const data = await response.json().catch(() => ({}))
+
+    if (!response.ok) {
+      const message = data?.error?.message || `Gemini API returned HTTP ${response.status}`
+      const error = new Error(message)
+      error.status = response.status
+      throw error
+    }
+
+    const output = readGeminiCompletionText(data)
+    console.log(`[AI:${taskName}] Request completed with provider=gemini model=${model}`)
+    return output
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      const timeoutError = new Error(`Gemini request timed out after ${getRequestTimeout()}ms`)
+      timeoutError.status = 408
+      throw timeoutError
+    }
+
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
+  }
+}
+
+const createCompletion = async ({ provider, taskName, content, maxTokens, model, messages }) => {
+  if (provider === 'groq') {
+    return createGroqCompletion({ taskName, content, maxTokens, model, messages })
+  }
+
+  if (provider === 'gemini') {
+    return createGeminiCompletion({ taskName, content, maxTokens, model, messages })
+  }
+
+  throw new AIModelError(`Unsupported AI provider: ${provider}`, {
+    reason: 'unsupported-provider',
+    provider,
+    status: 500,
+  })
+}
+
+const normalizeRoute = (route) => {
+  if (typeof route === 'string') {
+    return {
+      provider: 'groq',
+      model: route,
+    }
+  }
+
+  return {
+    provider: route.provider,
+    model: route.model,
+  }
+}
+
+const getRouteKey = (route) => `${route.provider}:${route.model}`
+
+const createCompletionWithFallback = async ({ taskName, content, maxTokens, routes, messages, failureMessage = DEFAULT_ERROR_MESSAGE }) => {
+  const fallbackRoutes = []
+  const seenRoutes = new Set()
+
+  for (const rawRoute of routes) {
+    const route = normalizeRoute(rawRoute)
+    if (!route.provider || !route.model) continue
+
+    const routeKey = getRouteKey(route)
+    if (!seenRoutes.has(routeKey)) {
+      seenRoutes.add(routeKey)
+      fallbackRoutes.push(route)
+    }
+  }
+
+  const attemptedRoutes = []
+  let lastError = null
+
+  for (const route of fallbackRoutes) {
+    attemptedRoutes.push(getRouteKey(route))
+
+    try {
+      const response = await createCompletion({
+        provider: route.provider,
+        taskName,
+        content,
+        maxTokens,
+        model: route.model,
+        messages,
+      })
+
+      return {
+        response,
+        provider: route.provider,
+        model: route.model,
+      }
+    } catch (error) {
+      lastError = error
+      console.warn(`[AI:${taskName}] Request failed with provider=${route.provider} model=${route.model}: ${getErrorSummary(error)}`)
+
+      if (attemptedRoutes.length < fallbackRoutes.length) {
+        const nextRoute = fallbackRoutes[attemptedRoutes.length]
+        console.warn(`[AI:${taskName}] Falling back from provider=${route.provider} model=${route.model} to provider=${nextRoute.provider} model=${nextRoute.model}`)
+      }
+    }
+  }
+
+  throw new AIModelError(failureMessage, {
+    taskName,
+    attemptedRoutes,
+    cause: lastError,
+  })
+}
+
 export const generateSummary = async (text) => {
-  return createCompletion(
-    `Please read and summarize the following study material in 3-4 concise paragraphs. Focus on main concepts and key information:\n\n${text}\n\nSummary:`,
-    1024,
-    process.env.SUMMARY_MODEL || DEFAULT_SUMMARY_MODEL
-  )
+  const models = getConfiguredModels()
+  const result = await createCompletionWithFallback({
+    taskName: 'pdf-summary',
+    content: `Please read and summarize the following study material in 3-4 concise paragraphs. Focus on main concepts and key information:\n\n${text}\n\nSummary:`,
+    maxTokens: 1024,
+    routes: [models.pdfPrimary, models.pdfFallback],
+  })
+
+  return result.response
 }
 
 export const generateKeyConcepts = async (text) => {
-  const response = await createCompletion(
-    `Extract the 5-8 most important concepts from this study material. Return them as a numbered list with brief explanations:\n\n${text}\n\nKey Concepts:`,
-    512,
-    process.env.SUMMARY_MODEL || DEFAULT_SUMMARY_MODEL
-  )
+  const models = getConfiguredModels()
+  const { response } = await createCompletionWithFallback({
+    taskName: 'concept-generation',
+    content: `Extract the 5-8 most important concepts from this study material. Return them as a numbered list with brief explanations:\n\n${text}\n\nKey Concepts:`,
+    maxTokens: 512,
+    routes: [models.concept],
+  })
 
   return parseKeyConcepts(response)
 }
 
 export const generateExamQuestions = async (text) => {
-  const response = await createCompletion(
-    `Create 3 multiple choice exam questions based on this study material. Format each question as JSON:\n{\n  "question": "Question text?",\n  "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],\n  "correctAnswer": "A) Option 1"\n}\n\nReturn ONLY valid JSON array format, no extra text.\n\n${text}\n\nQuestions:`,
-    1024,
-    process.env.SUMMARY_MODEL || DEFAULT_SUMMARY_MODEL
-  )
+  const models = getConfiguredModels()
+  const { response } = await createCompletionWithFallback({
+    taskName: 'quiz-generation',
+    content: `Create 3 multiple choice exam questions based on this study material. Format each question as JSON:\n{\n  "question": "Question text?",\n  "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],\n  "correctAnswer": "A) Option 1"\n}\n\nReturn ONLY valid JSON array format, no extra text.\n\n${text}\n\nQuestions:`,
+    maxTokens: 1024,
+    routes: [models.quiz],
+  })
 
   return parseExamQuestions(response)
 }
@@ -92,7 +345,7 @@ const parseExamQuestions = (text) => {
 export const processTextWithAI = async (text) => {
   try {
     // Limit text length for summary to avoid hitting token limits even with chunking
-    const textToProcess = text.substring(0, 15000); 
+    const textToProcess = text.substring(0, 15000)
     const [summary, concepts, questions] = await Promise.all([
       generateSummary(textToProcess),
       generateKeyConcepts(textToProcess),
@@ -105,73 +358,80 @@ export const processTextWithAI = async (text) => {
       examQuestions: questions,
     }
   } catch (error) {
-    throw new Error(`AI processing failed: ${error.message}`)
+    if (error instanceof AIModelError) {
+      throw error
+    }
+
+    throw new AIModelError(DEFAULT_ERROR_MESSAGE, {
+      taskName: 'pdf-processing',
+      cause: error,
+    })
   }
 }
 
 // Simple context selection using keyword matching
 const getRelevantChunks = (question, chunks, maxChunks = 3) => {
-  if (!chunks || chunks.length === 0) return '';
-  
-  const keywords = question.toLowerCase().split(/\W+/).filter(w => w.length > 3);
-  
-  const scoredChunks = chunks.map(chunk => {
-    let score = 0;
-    const lowerChunk = chunk.toLowerCase();
-    keywords.forEach(kw => {
-      if (lowerChunk.includes(kw)) score++;
-    });
-    return { chunk, score };
-  });
+  if (!chunks || chunks.length === 0) return ''
 
-  scoredChunks.sort((a, b) => b.score - a.score);
-  
+  const keywords = question.toLowerCase().split(/\W+/).filter(w => w.length > 3)
+
+  const scoredChunks = chunks.map(chunk => {
+    let score = 0
+    const lowerChunk = chunk.toLowerCase()
+    keywords.forEach(kw => {
+      if (lowerChunk.includes(kw)) score++
+    })
+    return { chunk, score }
+  })
+
+  scoredChunks.sort((a, b) => b.score - a.score)
+
   // Return the top N chunks joined together
-  return scoredChunks.slice(0, maxChunks).map(c => c.chunk).join('\n\n');
+  return scoredChunks.slice(0, maxChunks).map(c => c.chunk).join('\n\n')
 }
 
 export const generateChatResponse = async (question, chatHistory = [], chunks = []) => {
-  const groqClient = getGroqClient()
-  
-  const relevantContext = getRelevantChunks(question, chunks);
-  
-  // Format history for Groq
+  const models = getConfiguredModels()
+  const relevantContext = getRelevantChunks(question, chunks)
+
   const messages = [
     {
       role: 'system',
-      content: `You are an AI Study Agent. Answer the user's question based ONLY on the provided relevant study material context. If the answer is not in the context, say "I cannot find the answer in the study material." \n\nIMPORTANT FORMATTING INSTRUCTIONS:\n- Format your response using Markdown for readability.\n- Use headings, bullet points, numbered lists, and bold text to structure the information clearly.\n- Keep your answer concise, educational, and easy for students to read.\n\nRelevant Context:\n${relevantContext}`
-    }
+      content: `You are an AI Study Agent. Answer the user's question based ONLY on the provided relevant study material context. If the answer is not in the context, say "I cannot find the answer in the study material." \n\nIMPORTANT FORMATTING INSTRUCTIONS:\n- Format your response using Markdown for readability.\n- Use headings, bullet points, numbered lists, and bold text to structure the information clearly.\n- Keep your answer concise, educational, and easy for students to read.\n\nRelevant Context:\n${relevantContext}`,
+    },
   ]
-  
-  // Add previous chat history (limit to last 4 messages to save tokens)
-  const recentHistory = chatHistory.slice(-4);
+
+  const recentHistory = chatHistory.slice(-4)
   recentHistory.forEach(msg => {
     messages.push({
       role: msg.role === 'ai' ? 'assistant' : 'user',
-      content: msg.content
+      content: msg.content,
     })
   })
-  
-  // Add current question
+
   messages.push({
     role: 'user',
-    content: question
+    content: question,
   })
 
   try {
-    const completion = await groqClient.chat.completions.create({
-      model: process.env.CHAT_MODEL || DEFAULT_CHAT_MODEL,
-      max_tokens: 1024,
-      messages: messages,
+    const { response } = await createCompletionWithFallback({
+      taskName: 'chat',
+      routes: [models.chat],
+      maxTokens: 1024,
+      messages,
+      failureMessage: 'AI chat is temporarily unavailable. Please try again in a few minutes.',
     })
-
-    const response = completion.choices?.[0]?.message?.content
-    if (!response) {
-      throw new Error('Groq returned an empty completion')
-    }
 
     return response
   } catch (error) {
-    throw new Error(`AI Chat failed: ${error.message}`)
+    if (error instanceof AIModelError) {
+      throw error
+    }
+
+    throw new AIModelError('AI chat is temporarily unavailable. Please try again in a few minutes.', {
+      taskName: 'chat',
+      cause: error,
+    })
   }
 }

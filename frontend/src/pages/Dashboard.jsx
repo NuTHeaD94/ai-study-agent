@@ -94,7 +94,7 @@ export default function Dashboard() {
                   )}
                   {doc.status === 'failed' && (
                     <div style={{ fontSize: '0.85rem', color: '#d9534f', marginTop: '4px', fontWeight: 'bold' }}>
-                      ❌ Processing Failed
+                      {doc.processingError || 'Processing Failed'}
                     </div>
                   )}
                   {doc.status === 'completed' && doc.summary && (

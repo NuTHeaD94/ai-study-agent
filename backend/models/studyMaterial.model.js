@@ -31,6 +31,10 @@ const studyMaterialSchema = new mongoose.Schema(
         correctAnswer: String,
       },
     ],
+    processingError: {
+      type: String,
+      default: null,
+    },
     chunks: [
       {
         type: String,

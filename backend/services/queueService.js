@@ -1,7 +1,7 @@
 import { Queue, Worker } from 'bullmq'
 import Redis from 'ioredis'
 import StudyMaterial from '../models/studyMaterial.model.js'
-import { processTextWithAI } from './aiService.js'
+import { AI_USER_FRIENDLY_ERROR, processTextWithAI } from './aiService.js'
 
 console.log('[Queue] Initializing Redis connection...')
 // Try to connect to Redis
@@ -42,6 +42,7 @@ const worker = new Worker(
         concepts: aiResults.keyConcepts,
         quizQuestions: aiResults.examQuestions,
         status: 'completed',
+        processingError: null,
       })
 
       console.log(`[Worker] Job ${job.id} completed successfully. Status updated to completed.`)
@@ -50,6 +51,7 @@ const worker = new Worker(
       console.log(`[Worker] Job ${job.id}: Updating status to failed in MongoDB.`)
       await StudyMaterial.findByIdAndUpdate(studyMaterialId, {
         status: 'failed',
+        processingError: error.message || AI_USER_FRIENDLY_ERROR,
       })
       throw error // Let BullMQ handle the retry/failure logic
     }

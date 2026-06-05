@@ -3,7 +3,7 @@ import { fileURLToPath } from 'url'
 import PDF from '../models/pdf.model.js'
 import StudyMaterial from '../models/studyMaterial.model.js'
 import { extractTextFromPDF, cleanExtractedText, chunkText } from '../services/pdfService.js'
-import { generateChatResponse, processTextWithAI } from '../services/aiService.js'
+import { AI_USER_FRIENDLY_ERROR, generateChatResponse, processTextWithAI } from '../services/aiService.js'
 import { aiProcessingQueue } from '../services/queueService.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -65,6 +65,7 @@ export const processPDF = async (req, res, next) => {
           summary: aiResults.summary,
           concepts: aiResults.keyConcepts,
           quizQuestions: aiResults.examQuestions,
+          processingError: null,
           uploadedBy: req.user._id,
         })
         console.log(`[processPDF] Direct processing successful. Material ID: ${result._id}`)
@@ -74,7 +75,9 @@ export const processPDF = async (req, res, next) => {
         })
       } catch (directError) {
         console.error(`[processPDF] Direct processing failed:`, directError)
-        return res.status(500).json({ message: 'Direct AI processing failed' })
+        return res.status(directError.status || 503).json({
+          message: directError.message || AI_USER_FRIENDLY_ERROR,
+        })
       }
     }
 
@@ -85,6 +88,7 @@ export const processPDF = async (req, res, next) => {
       filePath: filePath,
       status: 'processing',
       chunks: chunks,
+      processingError: null,
       uploadedBy: req.user._id,
     })
     console.log(`[processPDF] StudyMaterial saved with ID: ${result._id}`)
@@ -106,6 +110,7 @@ export const processPDF = async (req, res, next) => {
     } catch (queueError) {
       console.error('[processPDF] Failed to add job to queue:', queueError)
       result.status = 'failed'
+      result.processingError = 'PDF processing could not be queued. Please make sure Redis is running and try again.'
       await result.save()
       return res.status(500).json({ message: 'Failed to queue processing tasks. Ensure Redis is running.' })
     }

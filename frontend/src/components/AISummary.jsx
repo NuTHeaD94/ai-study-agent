@@ -118,7 +118,7 @@ export default function AISummary({ pdfId, onClose }) {
           <button className="btn-close" onClick={onClose}>✕</button>
         </div>
         <div style={{ padding: '2rem', textAlign: 'center', color: '#d9534f' }}>
-          <p>We encountered an error while processing this document.</p>
+          <p>{result.processingError || 'We encountered an error while processing this document.'}</p>
           <p>Please try uploading it again later.</p>
         </div>
       </div>
