@@ -3,6 +3,28 @@ import { aiAPI } from '../api/ai'
 import ReactMarkdown from 'react-markdown'
 import '../styles/ai-summary.css'
 
+const cleanConceptDisplayText = (value) => {
+  return String(value || '')
+    .replace(/\$?\\rightarrow\$?/g, 'to')
+    .replace(/→/g, 'to')
+    .replace(/[`_$]/g, '')
+    .replace(/\*\*/g, '')
+    .replace(/\*/g, '')
+    .trim()
+}
+
+const getConceptDisplayParts = (concept) => {
+  const lines = String(concept || '')
+    .split('\n')
+    .map(cleanConceptDisplayText)
+    .filter(Boolean)
+
+  return {
+    title: lines[0] || '',
+    explanation: lines.slice(1).join(' '),
+  }
+}
+
 export default function AISummary({ pdfId, onClose }) {
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -175,11 +197,18 @@ export default function AISummary({ pdfId, onClose }) {
             <h3>Key Concepts</h3>
             <ul className="concepts-list">
               {result.concepts && result.concepts.length > 0 ? (
-                result.concepts.map((concept, index) => (
-                  <li key={index} className="concept-item">
-                    {concept}
-                  </li>
-                ))
+                result.concepts.map((concept, index) => {
+                  const { title, explanation } = getConceptDisplayParts(concept)
+
+                  return (
+                    <li key={index} className="concept-item">
+                      <div className="concept-title">{title}</div>
+                      {explanation && (
+                        <div className="concept-explanation">{explanation}</div>
+                      )}
+                    </li>
+                  )
+                })
               ) : (
                 <p>No concepts extracted</p>
               )}

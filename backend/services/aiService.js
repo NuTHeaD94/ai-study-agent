@@ -300,8 +300,20 @@ export const generateKeyConcepts = async (text) => {
   const models = getConfiguredModels()
   const { response } = await createCompletionWithFallback({
     taskName: 'concept-generation',
-    content: `Extract the 5-8 most important concepts from this study material. Return them as a numbered list with brief explanations:\n\n${text}\n\nKey Concepts:`,
-    maxTokens: 512,
+    content: `Extract the 5-8 most important concepts from this study material.
+
+Return ONLY a valid JSON array. Do not include any extra text before or after the JSON.
+Each item must have this exact shape:
+{
+  "title": "Short concept title",
+  "explanation": "Brief explanation in one or two plain text sentences."
+}
+
+Formatting rules: Use plain text only inside JSON string values. Do not use markdown. Do not use bullet points. Do not use asterisks. Do not use bold markers. Do not use LaTeX syntax. Do not include symbols like $ or \\rightarrow.
+
+Study material:
+${text}`,
+    maxTokens: 1024,
     routes: [models.concept],
   })
 
@@ -320,13 +332,77 @@ export const generateExamQuestions = async (text) => {
   return parseExamQuestions(response)
 }
 
+const cleanConceptText = (value) => {
+  return String(value || '')
+    .replace(/\$?\\rightarrow\$?/g, 'to')
+    .replace(/→/g, 'to')
+    .replace(/[`_$]/g, '')
+    .replace(/\*\*/g, '')
+    .replace(/\*/g, '')
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/^\s*[-+]\s+/gm, '')
+    .replace(/^\s*\d+[.)]\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+const formatConcept = (concept, index) => {
+  const rawTitle = typeof concept === 'string' ? concept : concept?.title
+  const rawExplanation = typeof concept === 'string' ? '' : concept?.explanation
+  const title = cleanConceptText(rawTitle).replace(/^Concept\s+\d+:\s*/i, '')
+  const explanation = cleanConceptText(rawExplanation)
+
+  if (!title && !explanation) return null
+  if (!explanation) return `Concept ${index + 1}: ${title}`
+
+  return `Concept ${index + 1}: ${title}\n${explanation}`
+}
+
+const parseConceptJson = (text) => {
+  const jsonMatch = text.match(/\[[\s\S]*\]/)
+  if (!jsonMatch) return null
+
+  try {
+    const parsed = JSON.parse(jsonMatch[0])
+    if (!Array.isArray(parsed)) return null
+
+    return parsed
+      .map(formatConcept)
+      .filter(Boolean)
+      .slice(0, 8)
+  } catch {
+    return null
+  }
+}
+
+const parsePlainTextConcepts = (text) => {
+  return text
+    .split(/\n{2,}|\n(?=\s*(?:Concept\s+\d+|\d+[.)]))/i)
+    .map((block, index) => {
+      const cleanedBlock = cleanConceptText(block)
+      if (!cleanedBlock) return null
+
+      const conceptMatch = cleanedBlock.match(/^Concept\s+\d+:\s*(.+?)(?:\s+-\s+|\s+:\s+)?(.+)?$/i)
+      if (conceptMatch) {
+        return formatConcept({
+          title: conceptMatch[1],
+          explanation: conceptMatch[2] || '',
+        }, index)
+      }
+
+      return formatConcept(cleanedBlock, index)
+    })
+    .filter(Boolean)
+    .slice(0, 8)
+}
+
 const parseKeyConcepts = (text) => {
-  // Extract numbered items from text
-  const lines = text.split('\n').filter(line => line.trim())
-  return lines
-    .map(line => line.replace(/^\d+\.\s*/, '').trim())
-    .filter(line => line.length > 0)
-    .slice(0, 8) // Limit to 8 concepts
+  const jsonConcepts = parseConceptJson(text)
+  if (jsonConcepts && jsonConcepts.length > 0) {
+    return jsonConcepts
+  }
+
+  return parsePlainTextConcepts(text)
 }
 
 const parseExamQuestions = (text) => {

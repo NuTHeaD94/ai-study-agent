@@ -162,6 +162,15 @@
   line-height: 1.5;
 }
 
+.concept-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.concept-explanation {
+  color: #4b5563;
+}
+
 /* Questions */
 .questions-list {
   display: flex;
