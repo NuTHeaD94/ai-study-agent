@@ -1,12 +1,16 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { authAPI, setToken, setUser } from '../utils/auth'
+import { Link, useNavigate, Navigate } from 'react-router-dom'
+import { authAPI, setToken, setUser, isAuthenticated } from '../utils/auth'
 
 export default function Register() {
   const navigate = useNavigate()
   const [form, setForm] = useState({ name: '', email: '', password: '' })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  if (isAuthenticated()) {
+    return <Navigate to="/dashboard" replace />
+  }
 
   const handleChange = e => setForm({ ...form, [e.target.name]: e.target.value })
 
