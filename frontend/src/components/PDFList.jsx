@@ -148,9 +148,18 @@ export default function PDFList({ refreshTrigger, onProcessStart, onProcessCompl
                     className={`btn-process ${hasResult ? 'btn-processed' : ''}`}
                     onClick={() => handleProcessPDF(pdf._id)}
                     disabled={processing === pdf._id}
-                    title={hasResult ? 'View AI Summary' : 'Generate AI Summary'}
+                    title={hasResult ? 'View AI Results' : 'Generate AI Results'}
                   >
-                    {processing === pdf._id ? '⏳' : hasResult ? '📊' : '✨'}
+                    <span className="btn-process-icon">
+                      {processing === pdf._id ? '⏳' : hasResult ? '📊' : '✨'}
+                    </span>
+                    <span>
+                      {processing === pdf._id
+                        ? 'Processing...'
+                        : hasResult
+                          ? 'View AI Results'
+                          : 'Generate AI Results'}
+                    </span>
                   </button>
                   <button
                     className="btn-delete"
