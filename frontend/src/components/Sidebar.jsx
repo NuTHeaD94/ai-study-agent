@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { getUser, logout } from '../utils/auth'
 
@@ -8,9 +9,22 @@ const navItems = [
 
 export default function Sidebar() {
   const navigate = useNavigate()
+  const [accountOpen, setAccountOpen] = useState(false)
+  const accountRef = useRef(null)
   const user = getUser()
   const displayName = user?.name?.trim() || user?.email || 'Account'
   const displayEmail = user?.email || ''
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (!accountRef.current?.contains(event.target)) {
+        setAccountOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const handleLogout = () => {
     logout()
@@ -22,6 +36,30 @@ export default function Sidebar() {
       <div className="sidebar-topbar">
         <div className="sidebar-logo">
           Study<span>AI</span>
+        </div>
+
+        <div className="sidebar-account-menu" ref={accountRef}>
+          <button
+            type="button"
+            className="sidebar-account-trigger"
+            aria-label="Open account menu"
+            aria-expanded={accountOpen}
+            onClick={() => setAccountOpen(open => !open)}
+          >
+            👤
+          </button>
+
+          {accountOpen && (
+            <div className="sidebar-account-popover" role="menu">
+              <div className="sidebar-account-name">{displayName}</div>
+              {displayEmail && user?.name && (
+                <div className="sidebar-account-email">{displayEmail}</div>
+              )}
+              <button type="button" className="sidebar-logout" onClick={handleLogout}>
+                Logout
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -36,19 +74,6 @@ export default function Sidebar() {
           ))}
         </ul>
       </nav>
-
-      <section className="sidebar-account" aria-label="Current account">
-        <div className="sidebar-account-avatar" aria-hidden="true">👤</div>
-        <div className="sidebar-account-text">
-          <div className="sidebar-account-name">{displayName}</div>
-          {displayEmail && user?.name && (
-            <div className="sidebar-account-email">{displayEmail}</div>
-          )}
-        </div>
-        <button type="button" className="sidebar-logout" onClick={handleLogout}>
-          Logout
-        </button>
-      </section>
     </aside>
   )
 }
