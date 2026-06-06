@@ -124,6 +124,10 @@
   min-width: 0;
 }
 
+.quiz-tab {
+  padding-top: 2px;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

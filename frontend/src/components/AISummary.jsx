@@ -68,6 +68,7 @@ export default function AISummary({ pdfId, onClose }) {
   const [chatMessage, setChatMessage] = useState('')
   const [chatHistory, setChatHistory] = useState([])
   const [chatLoading, setChatLoading] = useState(false)
+  const contentRef = useRef(null)
   const chatEndRef = useRef(null)
 
   const quizQuestions = result?.quizQuestions || []
@@ -100,6 +101,13 @@ export default function AISummary({ pdfId, onClose }) {
     setSelectedAnswers({})
     setSubmittedAnswers({})
   }, [result?._id])
+
+  useEffect(() => {
+    const content = contentRef.current
+    if (!content) return
+
+    content.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }, [activeTab])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -247,7 +255,7 @@ export default function AISummary({ pdfId, onClose }) {
         </button>
       </div>
 
-      <div className="summary-content">
+      <div className="summary-content" ref={contentRef}>
         {activeTab === 'summary' && (
           <div className="tab-content">
             <h3>Summary</h3>
@@ -281,7 +289,7 @@ export default function AISummary({ pdfId, onClose }) {
         )}
 
         {activeTab === 'questions' && (
-          <div className="tab-content">
+          <div className="tab-content quiz-tab">
             <div className="quiz-header">
               <h3>Practice Questions</h3>
               {quizQuestions.length > 0 && (
