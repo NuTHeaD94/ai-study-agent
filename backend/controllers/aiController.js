@@ -58,18 +58,24 @@ export const processPDF = async (req, res, next) => {
       try {
         const aiResults = await processTextWithAI(cleanedText)
         console.log(`[processPDF] Direct processing parsed concepts=${aiResults.keyConcepts?.length || 0}, quizQuestions=${aiResults.examQuestions?.length || 0}`)
-        const result = await StudyMaterial.create({
-          title: pdf.originalName,
-          filePath: filePath,
-          status: 'completed',
-          chunks: chunks,
-          summary: aiResults.summary,
-          concepts: aiResults.keyConcepts,
-          quizQuestions: aiResults.examQuestions,
-          processingError: null,
-          aiErrors: aiResults.aiErrors,
-          uploadedBy: req.user._id,
-        })
+        let result
+        try {
+          result = await StudyMaterial.create({
+            title: pdf.originalName,
+            filePath: filePath,
+            status: 'completed',
+            chunks: chunks,
+            summary: aiResults.summary,
+            concepts: aiResults.keyConcepts,
+            quizQuestions: aiResults.examQuestions,
+            processingError: null,
+            aiErrors: aiResults.aiErrors,
+            uploadedBy: req.user._id,
+          })
+        } catch (saveError) {
+          console.error(`[processPDF] Direct processing MongoDB save failed for ${pdf.originalName}:`, saveError)
+          throw saveError
+        }
         console.log(`[processPDF] Direct processing successful. Material ID: ${result._id}. Saved quizQuestions=${aiResults.examQuestions?.length || 0}`)
         return res.status(201).json({
           message: 'PDF processed and study material saved successfully (Direct)',

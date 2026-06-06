@@ -38,14 +38,19 @@ const worker = new Worker(
       console.log(`[Worker] Job ${job.id}: Parsed concepts=${aiResults.keyConcepts?.length || 0}, quizQuestions=${aiResults.examQuestions?.length || 0}`)
 
       console.log(`[Worker] Job ${job.id}: Saving results to MongoDB...`)
-      await StudyMaterial.findByIdAndUpdate(studyMaterialId, {
-        summary: aiResults.summary,
-        concepts: aiResults.keyConcepts,
-        quizQuestions: aiResults.examQuestions,
-        status: 'completed',
-        processingError: null,
-        aiErrors: aiResults.aiErrors,
-      })
+      try {
+        await StudyMaterial.findByIdAndUpdate(studyMaterialId, {
+          summary: aiResults.summary,
+          concepts: aiResults.keyConcepts,
+          quizQuestions: aiResults.examQuestions,
+          status: 'completed',
+          processingError: null,
+          aiErrors: aiResults.aiErrors,
+        })
+      } catch (saveError) {
+        console.error(`[Worker] Job ${job.id}: MongoDB save failed for material ${studyMaterialId}:`, saveError)
+        throw saveError
+      }
 
       console.log(`[Worker] Job ${job.id} completed successfully. Saved quizQuestions=${aiResults.examQuestions?.length || 0}. Status updated to completed.`)
     } catch (error) {

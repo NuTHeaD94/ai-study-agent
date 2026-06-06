@@ -117,6 +117,16 @@ const logRawAIResponse = (taskName, response) => {
 
 const getParseErrorMessage = (error) => error?.message || String(error || 'Unknown parsing error')
 
+const logParsedValue = (taskName, label, value) => {
+  console.log(`[AI:${taskName}] ${label} start`)
+  try {
+    console.log(JSON.stringify(value, null, 2))
+  } catch {
+    console.log(value)
+  }
+  console.log(`[AI:${taskName}] ${label} end`)
+}
+
 const createGroqCompletion = async ({ taskName, content, maxTokens, model, messages }) => {
   const groqClient = getGroqClient()
 
@@ -667,27 +677,96 @@ const cleanQuizText = (value) => {
     .trim()
 }
 
-const normalizeQuizQuestion = (question) => {
-  if (!question || typeof question !== 'object') return null
+const extractQuizOptions = (question) => {
+  const rawOptions = question.options || question.choices || question.answers
 
-  const prompt = cleanQuizText(question.question)
-  const options = Array.isArray(question.options)
-    ? question.options.map(cleanQuizText).filter(Boolean)
-    : []
-  const answer = cleanQuizText(question.answer || question.correctAnswer)
-  const explanation = cleanQuizText(question.explanation)
+  if (Array.isArray(rawOptions)) {
+    return rawOptions
+      .map((option) => {
+        if (typeof option === 'string') return cleanQuizText(option)
+        if (option && typeof option === 'object') {
+          return cleanQuizText(option.text || option.label || option.value || option.option || option.answer)
+        }
+        return ''
+      })
+      .filter(Boolean)
+  }
 
-  if (!prompt || options.length < 2 || !answer) return null
+  if (rawOptions && typeof rawOptions === 'object') {
+    return Object.values(rawOptions).map(cleanQuizText).filter(Boolean)
+  }
+
+  return []
+}
+
+const resolveQuizAnswer = (question, options) => {
+  const rawAnswer = question.answer
+    ?? question.correctAnswer
+    ?? question.correct_answer
+    ?? question.correct
+    ?? question.correctOption
+    ?? question.correct_option
+    ?? question.correctIndex
+    ?? question.correct_index
+
+  if (typeof rawAnswer === 'number') {
+    return options[rawAnswer] || options[rawAnswer - 1] || ''
+  }
+
+  const answer = cleanQuizText(rawAnswer)
+  if (!answer) return ''
+
+  const letterMatch = answer.match(/^[A-D]$/i)
+  if (letterMatch) {
+    const optionIndex = letterMatch[0].toUpperCase().charCodeAt(0) - 65
+    return options[optionIndex] || answer
+  }
+
+  const numericMatch = answer.match(/^[1-4]$/)
+  if (numericMatch) {
+    return options[Number(numericMatch[0]) - 1] || answer
+  }
+
+  return answer
+}
+
+const normalizeQuizQuestion = (question, index) => {
+  if (!question || typeof question !== 'object') {
+    return {
+      item: null,
+      error: `Question ${index + 1} is not an object.`,
+    }
+  }
+
+  const prompt = cleanQuizText(question.question || question.prompt || question.q)
+  const options = extractQuizOptions(question)
+  const answer = resolveQuizAnswer(question, options)
+  const explanation = cleanQuizText(question.explanation || question.reason || question.rationale)
+
+  const validationErrors = []
+  if (!prompt) validationErrors.push('missing question text')
+  if (options.length < 2) validationErrors.push(`expected at least 2 options, got ${options.length}`)
+  if (!answer) validationErrors.push('missing answer')
+
+  if (validationErrors.length > 0) {
+    return {
+      item: null,
+      error: `Question ${index + 1} invalid: ${validationErrors.join('; ')}`,
+    }
+  }
 
   const matchingOption = options.find(option => option.toLowerCase() === answer.toLowerCase())
   const correctAnswer = matchingOption || answer
 
   return {
-    question: prompt,
-    options,
-    correctAnswer,
-    answer: correctAnswer,
-    explanation: explanation || `The correct answer is ${correctAnswer}.`,
+    item: {
+      question: prompt,
+      options,
+      correctAnswer,
+      answer: correctAnswer,
+      explanation: explanation || `The correct answer is ${correctAnswer}.`,
+    },
+    error: null,
   }
 }
 
@@ -695,9 +774,11 @@ const parseExamQuestions = (text) => {
   const parseResult = parseJsonPayload(text)
   if (!parseResult.success) return parseResult
 
+  logParsedValue('quiz-generation', 'Parsed quiz JSON value', parseResult.value)
+
   const questionItems = Array.isArray(parseResult.value)
     ? parseResult.value
-    : parseResult.value?.questions || parseResult.value?.quizQuestions || parseResult.value?.quiz
+    : parseResult.value?.questions || parseResult.value?.quizQuestions || parseResult.value?.quiz || parseResult.value?.items
 
   if (!Array.isArray(questionItems)) {
     return {
@@ -707,16 +788,25 @@ const parseExamQuestions = (text) => {
     }
   }
 
-  const questions = questionItems
-    .map(normalizeQuizQuestion)
+  const normalizedResults = questionItems.map(normalizeQuizQuestion)
+  const validationErrors = normalizedResults.map(result => result.error).filter(Boolean)
+  if (validationErrors.length > 0) {
+    console.warn(`[AI:quiz-generation] Quiz validation errors: ${validationErrors.join(' | ')}`)
+  }
+
+  const questions = normalizedResults
+    .map(result => result.item)
     .filter(Boolean)
     .slice(0, 3)
+  logParsedValue('quiz-generation', 'Normalized quiz questions', questions)
 
   if (questions.length === 0) {
     return {
       success: false,
       items: [],
-      error: 'Quiz JSON array had no valid question/options/answer items after validation.',
+      error: validationErrors.length > 0
+        ? `Quiz JSON validation failed: ${validationErrors.join(' | ')}`
+        : 'Quiz JSON array had no valid question/options/answer items after validation.',
     }
   }
 
