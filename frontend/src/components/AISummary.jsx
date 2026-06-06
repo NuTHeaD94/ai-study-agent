@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown'
 import '../styles/ai-summary.css'
 
 const PROMPT_LEAKAGE_PATTERN = /\b(input|task|format|output|rules?|study material|instructions?|return only|json|example|check against constraints|ensure|strict json|json array|prompt labels|markdown)\b\s*:?\s*/i
+const SUMMARY_TEMPLATE_LEAKAGE_PATTERN = /(<main topic>|<important point>|<concept>|<likely exam|250[-–]400 words maximum|use only this format|no giant paragraphs|short bullets, student-friendly|no prompt labels|study material provided|exam-friendly study summary|rules:|input:|task:|format:|```)/i
 
 const cleanConceptDisplayText = (value) => {
   return String(value || '')
@@ -39,6 +40,8 @@ const formatSummaryMarkdown = (summary = '') => {
     .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
+
+const hasBadSummaryTemplateLeakage = (summary = '') => SUMMARY_TEMPLATE_LEAKAGE_PATTERN.test(String(summary))
 
 const getAnswerLetter = (value = '') => {
   const match = String(value).trim().match(/^([A-D])(?:\)|\.|:)?/i)
@@ -260,9 +263,15 @@ export default function AISummary({ pdfId, onClose }) {
         {activeTab === 'summary' && (
           <div className="tab-content">
             <h3>Summary</h3>
-            <div className="summary-text markdown-content">
-              <ReactMarkdown>{formatSummaryMarkdown(result.summary)}</ReactMarkdown>
-            </div>
+            {hasBadSummaryTemplateLeakage(result.summary) ? (
+              <div className="generation-warning">
+                Summary could not be generated cleanly. Please reprocess this PDF.
+              </div>
+            ) : (
+              <div className="summary-text markdown-content">
+                <ReactMarkdown>{formatSummaryMarkdown(result.summary)}</ReactMarkdown>
+              </div>
+            )}
             <p className="processed-time">
               Processed: {new Date(result.createdAt).toLocaleString()}
             </p>
