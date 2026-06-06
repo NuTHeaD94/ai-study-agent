@@ -390,7 +390,7 @@ export const generateKeyConcepts = async (text) => {
     taskName: 'concept-generation',
     content: getConceptPrompt(text),
     maxTokens: 1024,
-    routes: [models.concept],
+    routes: [models.concept, models.conceptFallback],
   })
 
   console.log(`[AI:concept-generation] Completed with provider=${provider} model=${model}`)
@@ -460,7 +460,7 @@ export const generateExamQuestions = async (text) => {
     taskName: 'quiz-generation',
     content: getQuizPrompt(text),
     maxTokens: 1024,
-    routes: [models.quiz],
+    routes: [models.quiz, models.quizFallback],
   })
 
   console.log(`[AI:quiz-generation] Completed with provider=${provider} model=${model}`)
