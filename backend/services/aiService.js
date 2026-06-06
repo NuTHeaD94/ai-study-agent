@@ -17,6 +17,7 @@ const DEFAULT_CONCEPT_FALLBACK_MODEL = 'llama-3.1-8b-instant'
 const DEFAULT_CHAT_PROVIDER = 'groq'
 const DEFAULT_CHAT_MODEL = 'llama-3.1-8b-instant'
 const DEFAULT_REQUEST_TIMEOUT_MS = 45000
+const DEFAULT_MODEL_REQUEST_RETRIES = 1
 const DEFAULT_ERROR_MESSAGE = 'AI processing is temporarily unavailable. Please try again in a few minutes.'
 
 export class AIModelError extends Error {
@@ -72,6 +73,15 @@ const getErrorSummary = (error) => {
   const status = error?.status || error?.code || 'unknown'
   const message = error?.message || 'Unknown error'
   return `status=${status}; message=${message}`
+}
+
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
+const getModelRequestRetries = () => {
+  const configuredRetries = Number(process.env.AI_MODEL_REQUEST_RETRIES)
+  return Number.isFinite(configuredRetries) && configuredRetries >= 0
+    ? configuredRetries
+    : DEFAULT_MODEL_REQUEST_RETRIES
 }
 
 const getGroqClient = () => {
@@ -277,33 +287,44 @@ const createCompletionWithFallback = async ({ taskName, content, maxTokens, rout
 
   const attemptedRoutes = []
   let lastError = null
+  const requestRetries = getModelRequestRetries()
 
   for (const route of fallbackRoutes) {
     attemptedRoutes.push(getRouteKey(route))
 
-    try {
-      const response = await createCompletion({
-        provider: route.provider,
-        taskName,
-        content,
-        maxTokens,
-        model: route.model,
-        messages,
-      })
+    for (let attempt = 0; attempt <= requestRetries; attempt += 1) {
+      try {
+        if (attempt > 0) {
+          console.warn(`[AI:${taskName}] Retrying provider=${route.provider} model=${route.model}; attempt=${attempt + 1}/${requestRetries + 1}`)
+        }
 
-      return {
-        response,
-        provider: route.provider,
-        model: route.model,
-      }
-    } catch (error) {
-      lastError = error
-      console.warn(`[AI:${taskName}] Request failed with provider=${route.provider} model=${route.model}: ${getErrorSummary(error)}`)
+        const response = await createCompletion({
+          provider: route.provider,
+          taskName,
+          content,
+          maxTokens,
+          model: route.model,
+          messages,
+        })
 
-      if (attemptedRoutes.length < fallbackRoutes.length) {
-        const nextRoute = fallbackRoutes[attemptedRoutes.length]
-        console.warn(`[AI:${taskName}] Falling back from provider=${route.provider} model=${route.model} to provider=${nextRoute.provider} model=${nextRoute.model}`)
+        return {
+          response,
+          provider: route.provider,
+          model: route.model,
+        }
+      } catch (error) {
+        lastError = error
+        console.warn(`[AI:${taskName}] Request failed with provider=${route.provider} model=${route.model}; attempt=${attempt + 1}/${requestRetries + 1}: ${getErrorSummary(error)}`)
+
+        if (attempt < requestRetries) {
+          await wait(700 * (attempt + 1))
+        }
       }
+    }
+
+    if (attemptedRoutes.length < fallbackRoutes.length) {
+      const nextRoute = fallbackRoutes[attemptedRoutes.length]
+      console.warn(`[AI:${taskName}] Falling back from provider=${route.provider} model=${route.model} to provider=${nextRoute.provider} model=${nextRoute.model}`)
     }
   }
 
@@ -912,11 +933,12 @@ export const processTextWithAI = async (text) => {
   try {
     // Limit text length for summary to avoid hitting token limits even with chunking
     const textToProcess = text.substring(0, 15000)
-    const [summary, concepts, questions] = await Promise.all([
-      generateSummary(textToProcess),
-      generateKeyConcepts(textToProcess),
-      generateExamQuestions(textToProcess),
-    ])
+    console.log('[AI:pdf-processing] Starting summary generation')
+    const summary = await generateSummary(textToProcess)
+    console.log('[AI:pdf-processing] Starting concepts generation')
+    const concepts = await generateKeyConcepts(textToProcess)
+    console.log('[AI:pdf-processing] Starting quiz generation')
+    const questions = await generateExamQuestions(textToProcess)
 
     return {
       summary,

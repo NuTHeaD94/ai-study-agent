@@ -21,6 +21,11 @@ export const aiProcessingQueue = new Queue('ai-processing', {
   connection: redisConnection,
 })
 
+const configuredConcurrency = Number(process.env.AI_WORKER_CONCURRENCY)
+const workerConcurrency = Number.isFinite(configuredConcurrency) && configuredConcurrency > 0
+  ? configuredConcurrency
+  : 1
+
 console.log('[Queue] Starting BullMQ Worker for ai-processing queue...')
 const worker = new Worker(
   'ai-processing',
@@ -30,11 +35,11 @@ const worker = new Worker(
     try {
       console.log(`[Worker] Started processing job ${job.id} for material ${studyMaterialId}`)
       
-      console.log(`[Worker] Job ${job.id}: Calling Groq API for Summary, Concepts, and Quizzes...`)
+      console.log(`[Worker] Job ${job.id}: Calling AI models for Summary, Concepts, and Quizzes...`)
       const startTime = Date.now()
       const aiResults = await processTextWithAI(text)
       const duration = ((Date.now() - startTime) / 1000).toFixed(2)
-      console.log(`[Worker] Job ${job.id}: Groq API calls completed in ${duration}s.`)
+      console.log(`[Worker] Job ${job.id}: AI model calls completed in ${duration}s.`)
       console.log(`[Worker] Job ${job.id}: Parsed concepts=${aiResults.keyConcepts?.length || 0}, quizQuestions=${aiResults.examQuestions?.length || 0}`)
 
       console.log(`[Worker] Job ${job.id}: Saving results to MongoDB...`)
@@ -65,7 +70,7 @@ const worker = new Worker(
   },
   {
     connection: redisConnection,
-    concurrency: 2, // Process up to 2 PDFs concurrently
+    concurrency: workerConcurrency,
   }
 )
 
