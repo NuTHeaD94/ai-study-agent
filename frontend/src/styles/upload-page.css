@@ -49,14 +49,13 @@
 /* Modal Styling */
 .ai-summary-modal {
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  padding: 20px;
+  z-index: 2000;
+  overflow: hidden;
 }
 
 .modal-overlay {
@@ -82,11 +81,20 @@
   position: relative;
   width: 90%;
   max-width: 920px;
-  max-height: 88vh;
+  height: min(88dvh, 820px);
+  max-height: calc(100dvh - 40px);
   background: white;
   border-radius: 8px;
   z-index: 1001;
   animation: slideUp 0.3s ease;
+  display: flex;
+  overflow: hidden;
+}
+
+.modal-content .ai-summary {
+  width: 100%;
+  height: 100%;
+  max-height: none;
 }
 
 @keyframes slideUp {
@@ -141,11 +149,13 @@
 
   .ai-summary-modal {
     align-items: stretch;
+    padding: 0;
   }
 
   .modal-content {
     width: 100%;
-    max-height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
     border-radius: 0;
   }
 }

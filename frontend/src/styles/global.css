@@ -437,11 +437,16 @@ a { color: inherit; text-decoration: none; }
   position: fixed;
   inset: 0;
   background-color: rgba(0,0,0,0.58);
-  z-index: 1000;
+  z-index: 2000;
   display: flex;
   justify-content: center;
   align-items: center;
   padding: 20px;
+  overflow: hidden;
+}
+
+.dashboard-modal-overlay .ai-summary {
+  flex: 0 1 auto;
 }
 
 /* Upload page */
@@ -685,6 +690,12 @@ a { color: inherit; text-decoration: none; }
   .dashboard-modal-overlay {
     padding: 0;
     align-items: stretch;
+  }
+
+  .dashboard-modal-overlay .ai-summary {
+    width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
   }
   
   .auth-card { padding: 32px 24px; margin: 16px; width: 100%; max-width: 100%; box-sizing: border-box; }
