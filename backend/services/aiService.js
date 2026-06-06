@@ -8,8 +8,12 @@ const DEFAULT_PDF_FALLBACK_PROVIDER = 'gemini'
 const DEFAULT_PDF_FALLBACK_MODEL = 'gemma-4-31b-it'
 const DEFAULT_QUIZ_PROVIDER = 'gemini'
 const DEFAULT_QUIZ_MODEL = 'gemma-4-31b-it'
+const DEFAULT_QUIZ_FALLBACK_PROVIDER = 'groq'
+const DEFAULT_QUIZ_FALLBACK_MODEL = 'llama-3.1-8b-instant'
 const DEFAULT_CONCEPT_PROVIDER = 'gemini'
 const DEFAULT_CONCEPT_MODEL = 'gemma-4-31b-it'
+const DEFAULT_CONCEPT_FALLBACK_PROVIDER = 'groq'
+const DEFAULT_CONCEPT_FALLBACK_MODEL = 'llama-3.1-8b-instant'
 const DEFAULT_CHAT_PROVIDER = 'groq'
 const DEFAULT_CHAT_MODEL = 'llama-3.1-8b-instant'
 const DEFAULT_REQUEST_TIMEOUT_MS = 45000
@@ -39,9 +43,17 @@ const getConfiguredModels = () => ({
     provider: process.env.QUIZ_PROVIDER || DEFAULT_QUIZ_PROVIDER,
     model: process.env.QUIZ_MODEL || DEFAULT_QUIZ_MODEL,
   },
+  quizFallback: {
+    provider: process.env.QUIZ_FALLBACK_PROVIDER || DEFAULT_QUIZ_FALLBACK_PROVIDER,
+    model: process.env.QUIZ_FALLBACK_MODEL || DEFAULT_QUIZ_FALLBACK_MODEL,
+  },
   concept: {
     provider: process.env.CONCEPT_PROVIDER || DEFAULT_CONCEPT_PROVIDER,
     model: process.env.CONCEPTS_MODEL || process.env.CONCEPT_MODEL || DEFAULT_CONCEPT_MODEL,
+  },
+  conceptFallback: {
+    provider: process.env.CONCEPT_FALLBACK_PROVIDER || DEFAULT_CONCEPT_FALLBACK_PROVIDER,
+    model: process.env.CONCEPTS_FALLBACK_MODEL || process.env.CONCEPT_FALLBACK_MODEL || DEFAULT_CONCEPT_FALLBACK_MODEL,
   },
   chat: {
     provider: process.env.CHAT_PROVIDER || DEFAULT_CHAT_PROVIDER,
@@ -349,12 +361,7 @@ ${text}`,
   return result.response
 }
 
-export const generateKeyConcepts = async (text) => {
-  const models = getConfiguredModels()
-  console.log(`[AI:concept-generation] Using configured provider=${models.concept.provider} model=${models.concept.model}`)
-  const { response, provider, model } = await createCompletionWithFallback({
-    taskName: 'concept-generation',
-    content: `You are a JSON-only study concept extractor.
+const getConceptPrompt = (text) => `You are a JSON-only study concept extractor.
 
 Extract the 5-8 most important concepts from the study material.
 
@@ -374,7 +381,14 @@ Content rules:
 - Keep each explanation short and revision-friendly.
 
 Study material:
-${text}`,
+${text}`
+
+export const generateKeyConcepts = async (text) => {
+  const models = getConfiguredModels()
+  console.log(`[AI:concept-generation] Using configured provider=${models.concept.provider} model=${models.concept.model}`)
+  let { response, provider, model } = await createCompletionWithFallback({
+    taskName: 'concept-generation',
+    content: getConceptPrompt(text),
     maxTokens: 1024,
     routes: [models.concept],
   })
@@ -385,25 +399,25 @@ ${text}`,
 
   if (!parseResult.success) {
     console.warn(`[AI:concept-generation] Parse failed: ${parseResult.error}`)
+    console.warn(`[AI:concept-generation] Retrying with fallback provider=${models.conceptFallback.provider} model=${models.conceptFallback.model}`)
     try {
-      const repairedResponse = await repairJsonResponse({
-        taskName: 'concept-repair',
-        rawResponse: response,
-        route: { provider, model },
-        schemaDescription: `[
-  {
-    "title": "Data Structure",
-    "explanation": "A way of organizing data efficiently."
-  }
-]`,
+      const fallbackResult = await createCompletionWithFallback({
+        taskName: 'concept-generation-fallback',
+        content: getConceptPrompt(text),
+        maxTokens: 1024,
+        routes: [models.conceptFallback],
       })
-      logRawAIResponse('concept-repair', repairedResponse)
-      parseResult = parseKeyConcepts(repairedResponse)
+      response = fallbackResult.response
+      provider = fallbackResult.provider
+      model = fallbackResult.model
+      console.log(`[AI:concept-generation-fallback] Completed with provider=${provider} model=${model}`)
+      logRawAIResponse('concept-generation-fallback', response)
+      parseResult = parseKeyConcepts(response)
       if (!parseResult.success) {
-        console.warn(`[AI:concept-generation] Repair parse failed: ${parseResult.error}`)
+        console.warn(`[AI:concept-generation-fallback] Parse failed: ${parseResult.error}`)
       }
     } catch (error) {
-      console.warn(`[AI:concept-generation] Repair request failed: ${getErrorSummary(error)}`)
+      console.warn(`[AI:concept-generation-fallback] Request failed: ${getErrorSummary(error)}`)
     }
   }
 
@@ -416,12 +430,7 @@ ${text}`,
   }
 }
 
-export const generateExamQuestions = async (text) => {
-  const models = getConfiguredModels()
-  console.log(`[AI:quiz-generation] Using configured provider=${models.quiz.provider} model=${models.quiz.model}`)
-  const { response, provider, model } = await createCompletionWithFallback({
-    taskName: 'quiz-generation',
-    content: `You are a JSON-only exam quiz generator.
+const getQuizPrompt = (text) => `You are a JSON-only exam quiz generator.
 
 Create 3 multiple choice exam questions based on this study material.
 
@@ -442,7 +451,14 @@ Rules:
 - Do not include markdown code fences.
 
 Study material:
-${text}`,
+${text}`
+
+export const generateExamQuestions = async (text) => {
+  const models = getConfiguredModels()
+  console.log(`[AI:quiz-generation] Using configured provider=${models.quiz.provider} model=${models.quiz.model}`)
+  let { response, provider, model } = await createCompletionWithFallback({
+    taskName: 'quiz-generation',
+    content: getQuizPrompt(text),
     maxTokens: 1024,
     routes: [models.quiz],
   })
@@ -453,27 +469,25 @@ ${text}`,
 
   if (!parseResult.success) {
     console.warn(`[AI:quiz-generation] Parse failed: ${parseResult.error}`)
+    console.warn(`[AI:quiz-generation] Retrying with fallback provider=${models.quizFallback.provider} model=${models.quizFallback.model}`)
     try {
-      const repairedResponse = await repairJsonResponse({
-        taskName: 'quiz-repair',
-        rawResponse: response,
-        route: { provider, model },
-        schemaDescription: `[
-  {
-    "question": "What is data?",
-    "options": ["Processed information", "Raw fact or value", "A set of entities", "An entity set"],
-    "answer": "Raw fact or value",
-    "explanation": "Data is raw fact before processing."
-  }
-]`,
+      const fallbackResult = await createCompletionWithFallback({
+        taskName: 'quiz-generation-fallback',
+        content: getQuizPrompt(text),
+        maxTokens: 1024,
+        routes: [models.quizFallback],
       })
-      logRawAIResponse('quiz-repair', repairedResponse)
-      parseResult = parseExamQuestions(repairedResponse)
+      response = fallbackResult.response
+      provider = fallbackResult.provider
+      model = fallbackResult.model
+      console.log(`[AI:quiz-generation-fallback] Completed with provider=${provider} model=${model}`)
+      logRawAIResponse('quiz-generation-fallback', response)
+      parseResult = parseExamQuestions(response)
       if (!parseResult.success) {
-        console.warn(`[AI:quiz-generation] Repair parse failed: ${parseResult.error}`)
+        console.warn(`[AI:quiz-generation-fallback] Parse failed: ${parseResult.error}`)
       }
     } catch (error) {
-      console.warn(`[AI:quiz-generation] Repair request failed: ${getErrorSummary(error)}`)
+      console.warn(`[AI:quiz-generation-fallback] Request failed: ${getErrorSummary(error)}`)
     }
   }
 
@@ -530,12 +544,20 @@ const containsPromptLeakage = (value) => {
   return !cleaned || PROMPT_LEAKAGE_PATTERN.test(cleaned)
 }
 
+const PLACEHOLDER_PATTERN = /^(\.{3,}|-|n\/a|na|null|undefined|tbd|to be decided|sample|example)$/i
+
+const isPlaceholderText = (value) => {
+  const cleaned = String(value || '').trim()
+  return !cleaned || PLACEHOLDER_PATTERN.test(cleaned)
+}
+
 const formatConcept = (concept, index) => {
-  const rawTitle = typeof concept === 'string' ? concept : concept?.title
-  const rawExplanation = typeof concept === 'string' ? '' : concept?.explanation
+  const rawTitle = typeof concept === 'string' ? concept : concept?.title || concept?.name
+  const rawExplanation = typeof concept === 'string' ? '' : concept?.explanation || concept?.description
   const title = cleanConceptText(rawTitle).replace(/^Concept\s+\d+:\s*/i, '')
   const explanation = cleanConceptText(rawExplanation)
 
+  if (isPlaceholderText(title) || isPlaceholderText(explanation)) return null
   if (containsPromptLeakage(title) || (explanation && containsPromptLeakage(explanation))) return null
   if (!title && !explanation) return null
   if (!explanation) return title
@@ -805,9 +827,11 @@ const normalizeQuizQuestion = (question, index) => {
   const explanation = cleanQuizText(question.explanation || question.reason || question.rationale)
 
   const validationErrors = []
-  if (!prompt) validationErrors.push('missing question text')
+  if (isPlaceholderText(prompt)) validationErrors.push('missing question text')
   if (options.length < 2) validationErrors.push(`expected at least 2 options, got ${options.length}`)
-  if (!answer) validationErrors.push('missing answer')
+  if (options.some(isPlaceholderText)) validationErrors.push('one or more options are placeholders')
+  if (isPlaceholderText(answer)) validationErrors.push('missing answer')
+  if (explanation && isPlaceholderText(explanation)) validationErrors.push('explanation is a placeholder')
 
   if (validationErrors.length > 0) {
     return {
