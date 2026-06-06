@@ -3,7 +3,7 @@ import { aiAPI } from '../api/ai'
 import ReactMarkdown from 'react-markdown'
 import '../styles/ai-summary.css'
 
-const PROMPT_LEAKAGE_PATTERN = /^(input|task|format|output|rules?|study material|instructions?|return only|json|example)\b\s*:?\s*/i
+const PROMPT_LEAKAGE_PATTERN = /\b(input|task|format|output|rules?|study material|instructions?|return only|json|example|check against constraints|ensure|strict json|json array|prompt labels|markdown)\b\s*:?\s*/i
 
 const cleanConceptDisplayText = (value) => {
   return String(value || '')
@@ -48,13 +48,14 @@ const getAnswerLetter = (value = '') => {
 const getOptionLabel = (option, index) => getAnswerLetter(option) || String.fromCharCode(65 + index)
 
 const isCorrectAnswer = (selectedOption, question) => {
-  if (!selectedOption || !question?.correctAnswer) return false
+  const correctAnswer = question?.answer || question?.correctAnswer
+  if (!selectedOption || !correctAnswer) return false
 
   const selectedLetter = getAnswerLetter(selectedOption)
-  const correctLetter = getAnswerLetter(question.correctAnswer)
+  const correctLetter = getAnswerLetter(correctAnswer)
   if (selectedLetter && correctLetter) return selectedLetter === correctLetter
 
-  return selectedOption.trim().toLowerCase() === String(question.correctAnswer).trim().toLowerCase()
+  return selectedOption.trim().toLowerCase() === String(correctAnswer).trim().toLowerCase()
 }
 
 export default function AISummary({ pdfId, onClose }) {
@@ -304,7 +305,8 @@ export default function AISummary({ pdfId, onClose }) {
                   const submitted = submittedAnswers[index]
                   const selectedOption = selectedAnswers[index]
                   const isCorrect = isCorrectAnswer(selectedOption, question)
-                  const correctLetter = getAnswerLetter(question.correctAnswer)
+                  const correctAnswer = question.answer || question.correctAnswer
+                  const correctLetter = getAnswerLetter(correctAnswer)
 
                   return (
                     <div key={index} className={`question-card ${submitted ? (isCorrect ? 'is-correct' : 'is-incorrect') : ''}`}>
@@ -345,11 +347,11 @@ export default function AISummary({ pdfId, onClose }) {
                         </div>
                         {!isCorrect && (
                           <div className="correct-answer">
-                            Correct Answer: {correctLetter || question.correctAnswer}
+                            Correct Answer: {correctLetter || correctAnswer}
                           </div>
                         )}
                         <div className="answer-explanation">
-                          <strong>Explanation:</strong> {question.explanation || `The correct answer is ${question.correctAnswer}.`}
+                          <strong>Explanation:</strong> {question.explanation || `The correct answer is ${correctAnswer}.`}
                         </div>
                       </div>
                     )}
@@ -357,7 +359,9 @@ export default function AISummary({ pdfId, onClose }) {
                   )
                 })
               ) : (
-                <p>No questions generated</p>
+                <div className="generation-warning">
+                  Quiz questions could not be generated cleanly for this PDF. Please reprocess the document and check the backend quiz logs.
+                </div>
               )}
             </div>
             {quizQuestions.length > 0 && submittedCount === quizQuestions.length && (
@@ -409,8 +413,10 @@ export default function AISummary({ pdfId, onClose }) {
               <button 
                 type="submit" 
                 disabled={chatLoading || !chatMessage.trim()}
+                aria-label="Send message"
               >
-                Send
+                <span className="send-label">Send</span>
+                <span className="send-icon" aria-hidden="true">↑</span>
               </button>
             </form>
           </div>

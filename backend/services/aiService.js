@@ -109,6 +109,12 @@ const readGeminiCompletionText = (data) => {
   return response
 }
 
+const logRawAIResponse = (taskName, response) => {
+  console.log(`[AI:${taskName}] Raw response start`)
+  console.log(response)
+  console.log(`[AI:${taskName}] Raw response end`)
+}
+
 const createGroqCompletion = async ({ taskName, content, maxTokens, model, messages }) => {
   const groqClient = getGroqClient()
 
@@ -332,9 +338,11 @@ ${text}`,
 
 export const generateKeyConcepts = async (text) => {
   const models = getConfiguredModels()
-  const { response } = await createCompletionWithFallback({
+  const { response, provider, model } = await createCompletionWithFallback({
     taskName: 'concept-generation',
-    content: `Extract the 5-8 most important concepts from this study material.
+    content: `You are a JSON-only study concept extractor.
+
+Extract the 5-8 most important concepts from the study material.
 
 Return ONLY a valid JSON array. Do not include any extra text before or after the JSON.
 Each item must have this exact shape:
@@ -345,7 +353,8 @@ Each item must have this exact shape:
 
 Content rules:
 - Include only actual study concepts from the material.
-- Never include prompt labels or instruction words such as Input, Task, Format, Output, Rules, or Study material.
+- Never include prompt labels, validation notes, implementation notes, or instruction words.
+- Never include phrases such as "Check against constraints", "Ensure", "strict JSON", "JSON array", "prompt labels", or "markdown".
 - Use plain text only inside JSON string values.
 - Do not use markdown, bullet points, asterisks, bold markers, LaTeX syntax, or symbols like $ or \\rightarrow.
 - Keep each explanation short and revision-friendly.
@@ -356,27 +365,37 @@ ${text}`,
     routes: [models.concept],
   })
 
-  return parseKeyConcepts(response)
+  console.log(`[AI:concept-generation] Completed with provider=${provider} model=${model}`)
+  logRawAIResponse('concept-generation', response)
+  const concepts = parseKeyConcepts(response)
+  console.log(`[AI:concept-generation] Parsed concepts count=${concepts.length}`)
+
+  return concepts
 }
 
 export const generateExamQuestions = async (text) => {
   const models = getConfiguredModels()
-  const { response } = await createCompletionWithFallback({
+  const { response, provider, model } = await createCompletionWithFallback({
     taskName: 'quiz-generation',
-    content: `Create 3 multiple choice exam questions based on this study material.
+    content: `You are a JSON-only exam quiz generator.
+
+Create 3 multiple choice exam questions based on this study material.
 
 Return ONLY a valid JSON array. Each item must have this exact shape:
 {
   "question": "Question text?",
-  "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
-  "correctAnswer": "A) Option 1",
+  "options": ["Processed information", "Raw fact or value", "A set of entities", "An entity set"],
+  "answer": "Raw fact or value",
   "explanation": "One short sentence explaining why the answer is correct."
 }
 
 Rules:
 - Ask exam-oriented questions about important definitions, differences, uses, or examples.
+- The answer value must exactly match one option string.
+- Do not prefix options with A), B), C), or D).
 - Do not reveal answers outside the JSON field.
 - Do not include extra text before or after the JSON.
+- Do not include markdown code fences.
 
 Study material:
 ${text}`,
@@ -384,7 +403,12 @@ ${text}`,
     routes: [models.quiz],
   })
 
-  return parseExamQuestions(response)
+  console.log(`[AI:quiz-generation] Completed with provider=${provider} model=${model}`)
+  logRawAIResponse('quiz-generation', response)
+  const questions = parseExamQuestions(response)
+  console.log(`[AI:quiz-generation] Parsed quiz count=${questions.length}`)
+
+  return questions
 }
 
 const cleanConceptText = (value) => {
@@ -401,7 +425,7 @@ const cleanConceptText = (value) => {
     .trim()
 }
 
-const PROMPT_LEAKAGE_PATTERN = /^(input|task|format|output|rules?|study material|instructions?|return only|json|example)\b\s*:?\s*/i
+const PROMPT_LEAKAGE_PATTERN = /\b(input|task|format|output|rules?|study material|instructions?|return only|json|example|check against constraints|ensure|strict json|json array|prompt labels|markdown)\b\s*:?\s*/i
 
 const containsPromptLeakage = (value) => {
   const cleaned = cleanConceptText(value)
@@ -422,20 +446,14 @@ const formatConcept = (concept, index) => {
 }
 
 const parseConceptJson = (text) => {
-  const jsonMatch = text.match(/\[[\s\S]*\]/)
-  if (!jsonMatch) return null
+  const parsed = parseJsonPayload(text)
+  const conceptItems = Array.isArray(parsed) ? parsed : parsed?.concepts
+  if (!Array.isArray(conceptItems)) return null
 
-  try {
-    const parsed = JSON.parse(jsonMatch[0])
-    if (!Array.isArray(parsed)) return null
-
-    return parsed
+  return conceptItems
       .map(formatConcept)
       .filter(Boolean)
       .slice(0, 8)
-  } catch {
-    return null
-  }
 }
 
 const parsePlainTextConcepts = (text) => {
@@ -465,20 +483,107 @@ const parseKeyConcepts = (text) => {
     return jsonConcepts
   }
 
-  return parsePlainTextConcepts(text)
+  console.warn('[AI:concept-generation] Failed to parse clean concept JSON. Returning safe fallback.')
+  return [
+    'Concepts unavailable\nThe AI response could not be parsed cleanly. Please reprocess this PDF.',
+  ]
+}
+
+const stripCodeFences = (text) => {
+  return String(text || '')
+    .replace(/^\s*```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim()
+}
+
+const removeTrailingCommas = (text) => text.replace(/,\s*([}\]])/g, '$1')
+
+const extractJsonCandidate = (text) => {
+  const cleaned = stripCodeFences(text)
+  if (!cleaned) return ''
+
+  const firstArray = cleaned.indexOf('[')
+  const firstObject = cleaned.indexOf('{')
+  const starts = [firstArray, firstObject].filter(index => index >= 0)
+  if (starts.length === 0) return cleaned
+
+  const start = Math.min(...starts)
+  const opener = cleaned[start]
+  const closer = opener === '[' ? ']' : '}'
+  const end = cleaned.lastIndexOf(closer)
+
+  return end > start ? cleaned.slice(start, end + 1) : cleaned
+}
+
+const parseJsonPayload = (text) => {
+  const attempts = [
+    stripCodeFences(text),
+    extractJsonCandidate(text),
+    removeTrailingCommas(extractJsonCandidate(text)),
+  ].filter(Boolean)
+
+  for (const attempt of attempts) {
+    try {
+      const parsed = JSON.parse(attempt)
+      if (typeof parsed === 'string') {
+        const nested = parseJsonPayload(parsed)
+        if (nested) return nested
+      }
+      return parsed
+    } catch {
+      // Try the next cleaned candidate.
+    }
+  }
+
+  return null
+}
+
+const cleanQuizText = (value) => {
+  return String(value || '')
+    .replace(/^[A-D](?:\)|\.|:)?\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+const normalizeQuizQuestion = (question) => {
+  if (!question || typeof question !== 'object') return null
+
+  const prompt = cleanQuizText(question.question)
+  const options = Array.isArray(question.options)
+    ? question.options.map(cleanQuizText).filter(Boolean)
+    : []
+  const answer = cleanQuizText(question.answer || question.correctAnswer)
+  const explanation = cleanQuizText(question.explanation)
+
+  if (!prompt || options.length < 2 || !answer) return null
+
+  const matchingOption = options.find(option => option.toLowerCase() === answer.toLowerCase())
+  const correctAnswer = matchingOption || answer
+
+  return {
+    question: prompt,
+    options,
+    correctAnswer,
+    answer: correctAnswer,
+    explanation: explanation || `The correct answer is ${correctAnswer}.`,
+  }
 }
 
 const parseExamQuestions = (text) => {
-  try {
-    // Extract JSON arrays from the response
-    const jsonMatch = text.match(/\[[\s\S]*\]/g)
-    if (!jsonMatch) return []
+  const parsed = parseJsonPayload(text)
+  const questionItems = Array.isArray(parsed)
+    ? parsed
+    : parsed?.questions || parsed?.quizQuestions || parsed?.quiz
 
-    const parsed = JSON.parse(jsonMatch[0])
-    return Array.isArray(parsed) ? parsed.slice(0, 3) : [] // Limit to 3 questions
-  } catch {
+  if (!Array.isArray(questionItems)) {
+    console.warn('[AI:quiz-generation] Failed to parse quiz JSON array.')
     return []
   }
+
+  return questionItems
+    .map(normalizeQuizQuestion)
+    .filter(Boolean)
+    .slice(0, 3)
 }
 
 export const processTextWithAI = async (text) => {

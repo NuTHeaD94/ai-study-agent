@@ -29,6 +29,7 @@ const studyMaterialSchema = new mongoose.Schema(
         question: String,
         options: [String],
         correctAnswer: String,
+        answer: String,
         explanation: String,
       },
     ],

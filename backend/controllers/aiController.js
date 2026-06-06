@@ -57,6 +57,7 @@ export const processPDF = async (req, res, next) => {
       // Process synchronously
       try {
         const aiResults = await processTextWithAI(cleanedText)
+        console.log(`[processPDF] Direct processing parsed concepts=${aiResults.keyConcepts?.length || 0}, quizQuestions=${aiResults.examQuestions?.length || 0}`)
         const result = await StudyMaterial.create({
           title: pdf.originalName,
           filePath: filePath,
@@ -68,7 +69,7 @@ export const processPDF = async (req, res, next) => {
           processingError: null,
           uploadedBy: req.user._id,
         })
-        console.log(`[processPDF] Direct processing successful. Material ID: ${result._id}`)
+        console.log(`[processPDF] Direct processing successful. Material ID: ${result._id}. Saved quizQuestions=${aiResults.examQuestions?.length || 0}`)
         return res.status(201).json({
           message: 'PDF processed and study material saved successfully (Direct)',
           result,

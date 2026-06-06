@@ -35,6 +35,7 @@ const worker = new Worker(
       const aiResults = await processTextWithAI(text)
       const duration = ((Date.now() - startTime) / 1000).toFixed(2)
       console.log(`[Worker] Job ${job.id}: Groq API calls completed in ${duration}s.`)
+      console.log(`[Worker] Job ${job.id}: Parsed concepts=${aiResults.keyConcepts?.length || 0}, quizQuestions=${aiResults.examQuestions?.length || 0}`)
 
       console.log(`[Worker] Job ${job.id}: Saving results to MongoDB...`)
       await StudyMaterial.findByIdAndUpdate(studyMaterialId, {
@@ -45,7 +46,7 @@ const worker = new Worker(
         processingError: null,
       })
 
-      console.log(`[Worker] Job ${job.id} completed successfully. Status updated to completed.`)
+      console.log(`[Worker] Job ${job.id} completed successfully. Saved quizQuestions=${aiResults.examQuestions?.length || 0}. Status updated to completed.`)
     } catch (error) {
       console.error(`[Worker] Job ${job.id} failed during execution:`, error)
       console.log(`[Worker] Job ${job.id}: Updating status to failed in MongoDB.`)
