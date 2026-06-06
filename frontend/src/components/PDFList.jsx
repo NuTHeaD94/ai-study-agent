@@ -96,6 +96,13 @@ export default function PDFList({ refreshTrigger, onProcessStart, onProcessCompl
     return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
   }
 
+  const getStatusLabel = (result) => {
+    if (!result) return 'Not processed'
+    if (result.status === 'processing') return 'Processing'
+    if (result.status === 'failed') return 'Failed'
+    return 'Ready'
+  }
+
   if (loading) {
     return <div className="pdf-list"><p>Loading PDFs...</p></div>
   }
@@ -113,15 +120,27 @@ export default function PDFList({ refreshTrigger, onProcessStart, onProcessCompl
       ) : (
         <div className="pdf-items">
           {pdfs.map(pdf => {
-            const hasResult = !!aiResults[pdf.originalName]
+            const result = aiResults[pdf.originalName]
+            const hasResult = !!result
+            const statusLabel = getStatusLabel(result)
             return (
               <div key={pdf._id} className="pdf-item">
                 <div className="pdf-icon">📄</div>
                 <div className="pdf-details">
                   <div className="pdf-name">{pdf.originalName}</div>
                   <div className="pdf-meta">
-                    {formatFileSize(pdf.fileSize)} · {formatDate(pdf.uploadedAt)}
-                    {hasResult && <span className="badge-processed"> ✓ Processed</span>}
+                    {formatFileSize(pdf.fileSize)} · Uploaded {formatDate(pdf.uploadedAt)}
+                    <span className={`badge-status status-${result?.status || 'new'}`}>
+                      {statusLabel}
+                    </span>
+                  </div>
+                  <div className="pdf-info-grid">
+                    <span><strong>File Name</strong>{pdf.originalName}</span>
+                    <span><strong>Upload Date</strong>{formatDate(pdf.uploadedAt)}</span>
+                    <span><strong>Processing Status</strong>{statusLabel}</span>
+                    <span><strong>Concepts</strong>{result?.concepts?.length || 0}</span>
+                    <span><strong>Quiz Questions</strong>{result?.quizQuestions?.length || 0}</span>
+                    {pdf.pageCount && <span><strong>Pages</strong>{pdf.pageCount}</span>}
                   </div>
                 </div>
                 <div className="pdf-actions">

@@ -1,7 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { aiAPI } from '../api/ai'
 import ReactMarkdown from 'react-markdown'
 import '../styles/ai-summary.css'
+
+const PROMPT_LEAKAGE_PATTERN = /^(input|task|format|output|rules?|study material|instructions?|return only|json|example)\b\s*:?\s*/i
 
 const cleanConceptDisplayText = (value) => {
   return String(value || '')
@@ -10,6 +12,7 @@ const cleanConceptDisplayText = (value) => {
     .replace(/[`_$]/g, '')
     .replace(/\*\*/g, '')
     .replace(/\*/g, '')
+    .replace(/^Concept\s+\d+:\s*/i, '')
     .trim()
 }
 
@@ -25,15 +28,60 @@ const getConceptDisplayParts = (concept) => {
   }
 }
 
+const isPromptLeakage = (value) => PROMPT_LEAKAGE_PATTERN.test(cleanConceptDisplayText(value))
+
+const formatSummaryMarkdown = (summary = '') => {
+  return String(summary)
+    .replace(/^\s*(Input|Task|Format|Output|Rules|Study material)\s*:.*$/gim, '')
+    .replace(/^\s*Topic:\s*/im, '### Topic: ')
+    .replace(/^\s*(Key Points|Important Concepts|Exam Focus|Quick Revision):\s*$/gim, '### $1')
+    .replace(/^\s*[•]\s*/gm, '- ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+const getAnswerLetter = (value = '') => {
+  const match = String(value).trim().match(/^([A-D])(?:\)|\.|:)?/i)
+  return match ? match[1].toUpperCase() : ''
+}
+
+const getOptionLabel = (option, index) => getAnswerLetter(option) || String.fromCharCode(65 + index)
+
+const isCorrectAnswer = (selectedOption, question) => {
+  if (!selectedOption || !question?.correctAnswer) return false
+
+  const selectedLetter = getAnswerLetter(selectedOption)
+  const correctLetter = getAnswerLetter(question.correctAnswer)
+  if (selectedLetter && correctLetter) return selectedLetter === correctLetter
+
+  return selectedOption.trim().toLowerCase() === String(question.correctAnswer).trim().toLowerCase()
+}
+
 export default function AISummary({ pdfId, onClose }) {
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('summary')
+  const [selectedAnswers, setSelectedAnswers] = useState({})
+  const [submittedAnswers, setSubmittedAnswers] = useState({})
 
   const [chatMessage, setChatMessage] = useState('')
   const [chatHistory, setChatHistory] = useState([])
   const [chatLoading, setChatLoading] = useState(false)
+  const chatEndRef = useRef(null)
+
+  const quizQuestions = result?.quizQuestions || []
+  const displayedConcepts = useMemo(() => {
+    return (result?.concepts || [])
+      .map(getConceptDisplayParts)
+      .filter(({ title, explanation }) => title && !isPromptLeakage(title) && !isPromptLeakage(explanation))
+  }, [result?.concepts])
+  const submittedCount = Object.keys(submittedAnswers).length
+  const quizScore = useMemo(() => {
+    return quizQuestions.reduce((score, question, index) => {
+      return score + (submittedAnswers[index] && isCorrectAnswer(selectedAnswers[index], question) ? 1 : 0)
+    }, 0)
+  }, [quizQuestions, selectedAnswers, submittedAnswers])
 
   useEffect(() => {
     fetchResult()
@@ -47,6 +95,15 @@ export default function AISummary({ pdfId, onClose }) {
       if (intervalId) clearInterval(intervalId);
     }
   }, [pdfId, result?.status])
+
+  useEffect(() => {
+    setSelectedAnswers({})
+    setSubmittedAnswers({})
+  }, [result?._id])
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [chatHistory, chatLoading, activeTab])
 
   const fetchResult = async () => {
     // Only show loading initially
@@ -89,6 +146,15 @@ export default function AISummary({ pdfId, onClose }) {
     } finally {
       setChatLoading(false)
     }
+  }
+
+  const handleSubmitAnswer = (questionIndex) => {
+    if (!selectedAnswers[questionIndex]) return
+
+    setSubmittedAnswers(prev => ({
+      ...prev,
+      [questionIndex]: true,
+    }))
   }
 
   if (loading) {
@@ -185,7 +251,9 @@ export default function AISummary({ pdfId, onClose }) {
         {activeTab === 'summary' && (
           <div className="tab-content">
             <h3>Summary</h3>
-            <p className="summary-text">{result.summary}</p>
+            <div className="summary-text markdown-content">
+              <ReactMarkdown>{formatSummaryMarkdown(result.summary)}</ReactMarkdown>
+            </div>
             <p className="processed-time">
               Processed: {new Date(result.createdAt).toLocaleString()}
             </p>
@@ -196,19 +264,15 @@ export default function AISummary({ pdfId, onClose }) {
           <div className="tab-content">
             <h3>Key Concepts</h3>
             <ul className="concepts-list">
-              {result.concepts && result.concepts.length > 0 ? (
-                result.concepts.map((concept, index) => {
-                  const { title, explanation } = getConceptDisplayParts(concept)
-
-                  return (
+              {displayedConcepts.length > 0 ? (
+                displayedConcepts.map(({ title, explanation }, index) => (
                     <li key={index} className="concept-item">
                       <div className="concept-title">{title}</div>
                       {explanation && (
                         <div className="concept-explanation">{explanation}</div>
                       )}
                     </li>
-                  )
-                })
+                ))
               ) : (
                 <p>No concepts extracted</p>
               )}
@@ -218,57 +282,94 @@ export default function AISummary({ pdfId, onClose }) {
 
         {activeTab === 'questions' && (
           <div className="tab-content">
-            <h3>Practice Questions</h3>
+            <div className="quiz-header">
+              <h3>Practice Questions</h3>
+              {quizQuestions.length > 0 && (
+                <div className="quiz-score">
+                  Score: {quizScore}/{quizQuestions.length}
+                </div>
+              )}
+            </div>
             <div className="questions-list">
-              {result.quizQuestions && result.quizQuestions.length > 0 ? (
-                result.quizQuestions.map((question, index) => (
-                  <div key={index} className="question-card">
-                    <div className="question-number">Q{index + 1}</div>
+              {quizQuestions.length > 0 ? (
+                quizQuestions.map((question, index) => {
+                  const submitted = submittedAnswers[index]
+                  const selectedOption = selectedAnswers[index]
+                  const isCorrect = isCorrectAnswer(selectedOption, question)
+                  const correctLetter = getAnswerLetter(question.correctAnswer)
+
+                  return (
+                    <div key={index} className={`question-card ${submitted ? (isCorrect ? 'is-correct' : 'is-incorrect') : ''}`}>
+                    <div className="question-number">Question {index + 1}</div>
                     <p className="question-text">{question.question}</p>
                     <div className="options">
                       {question.options && question.options.map((option, optIndex) => (
-                        <label key={optIndex} className="option">
-                          <input type="radio" name={`q${index}`} disabled />
-                          <span>{option}</span>
+                        <label
+                          key={optIndex}
+                          className={`option ${selectedOption === option ? 'selected' : ''}`}
+                        >
+                          <input
+                            type="radio"
+                            name={`q${index}`}
+                            value={option}
+                            checked={selectedOption === option}
+                            disabled={submitted}
+                            onChange={() => setSelectedAnswers(prev => ({ ...prev, [index]: option }))}
+                          />
+                          <span className="option-letter">{getOptionLabel(option, optIndex)}</span>
+                          <span className="option-text">{option.replace(/^[A-D](?:\)|\.|:)?\s*/i, '')}</span>
                         </label>
                       ))}
                     </div>
-                    <p className="correct-answer">
-                      <strong>Answer:</strong> {question.correctAnswer}
-                    </p>
+                    {!submitted ? (
+                      <button
+                        type="button"
+                        className="btn-submit-answer"
+                        disabled={!selectedOption}
+                        onClick={() => handleSubmitAnswer(index)}
+                      >
+                        Submit Answer
+                      </button>
+                    ) : (
+                      <div className={`answer-result ${isCorrect ? 'correct' : 'incorrect'}`}>
+                        <div className="answer-status">
+                          {isCorrect ? 'Correct' : 'Incorrect'}
+                        </div>
+                        {!isCorrect && (
+                          <div className="correct-answer">
+                            Correct Answer: {correctLetter || question.correctAnswer}
+                          </div>
+                        )}
+                        <div className="answer-explanation">
+                          <strong>Explanation:</strong> {question.explanation || `The correct answer is ${question.correctAnswer}.`}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                ))
+                  )
+                })
               ) : (
                 <p>No questions generated</p>
               )}
             </div>
+            {quizQuestions.length > 0 && submittedCount === quizQuestions.length && (
+              <div className="final-score">
+                Final score: {quizScore}/{quizQuestions.length}
+              </div>
+            )}
           </div>
         )}
 
         {activeTab === 'chat' && (
           <div className="tab-content chat-tab">
             <h3>Chat with Study Material</h3>
-            <div className="chat-messages" style={{ maxHeight: '300px', overflowY: 'auto', marginBottom: '1rem', padding: '10px', background: '#f9f9f9', borderRadius: '8px' }}>
+            <div className="chat-messages">
               {chatHistory.length === 0 ? (
-                <p style={{ textAlign: 'center', color: '#666' }}>Ask a question about this material!</p>
+                <p className="chat-empty">Ask a question about this material.</p>
               ) : (
                 chatHistory.map((msg, index) => (
-                  <div key={index} style={{ marginBottom: '15px', textAlign: msg.role === 'user' ? 'right' : 'left', display: 'flex', flexDirection: 'column', alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start' }}>
-                    <div style={{
-                      display: 'inline-block',
-                      padding: '12px 16px',
-                      borderRadius: '12px',
-                      background: msg.role === 'user' ? '#007bff' : '#ffffff',
-                      color: msg.role === 'user' ? 'white' : '#333',
-                      border: msg.role === 'user' ? 'none' : '1px solid #e0e0e0',
-                      maxWidth: '85%',
-                      textAlign: 'left',
-                      lineHeight: '1.6',
-                      wordWrap: 'break-word',
-                      overflowWrap: 'break-word',
-                      whiteSpace: 'normal',
-                      boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-                    }} className={msg.role === 'ai' ? 'markdown-content' : ''}>
+                  <div key={index} className={`chat-row ${msg.role === 'user' ? 'user' : 'ai'}`}>
+                    <div className={`chat-bubble ${msg.role === 'ai' ? 'markdown-content' : ''}`}>
                       {msg.role === 'user' ? (
                         msg.content
                       ) : (
@@ -279,26 +380,27 @@ export default function AISummary({ pdfId, onClose }) {
                 ))
               )}
               {chatLoading && (
-                <div style={{ textAlign: 'left', marginBottom: '10px' }}>
-                  <div style={{ display: 'inline-block', padding: '8px 12px', borderRadius: '8px', background: '#e9ecef', color: '#666' }}>
-                    Typing...
+                <div className="chat-row ai">
+                  <div className="chat-bubble typing-indicator" aria-label="AI is typing">
+                    <span />
+                    <span />
+                    <span />
                   </div>
                 </div>
               )}
+              <div ref={chatEndRef} />
             </div>
-            <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '10px' }}>
+            <form onSubmit={handleSendMessage} className="chat-form">
               <input
                 type="text"
                 value={chatMessage}
                 onChange={(e) => setChatMessage(e.target.value)}
                 placeholder="Ask a question..."
-                style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #ccc' }}
                 disabled={chatLoading}
               />
               <button 
                 type="submit" 
                 disabled={chatLoading || !chatMessage.trim()}
-                style={{ padding: '10px 20px', borderRadius: '8px', border: 'none', background: '#007bff', color: 'white', cursor: chatLoading || !chatMessage.trim() ? 'not-allowed' : 'pointer' }}
               >
                 Send
               </button>

@@ -288,7 +288,41 @@ export const generateSummary = async (text) => {
   const models = getConfiguredModels()
   const result = await createCompletionWithFallback({
     taskName: 'pdf-summary',
-    content: `Please read and summarize the following study material in 3-4 concise paragraphs. Focus on main concepts and key information:\n\n${text}\n\nSummary:`,
+    content: `Create an exam-friendly study summary from the material below.
+
+Return 250-400 words maximum.
+Use ONLY this format:
+
+Topic: <main topic>
+
+Key Points:
+- <important point>
+- <important point>
+- <important point>
+- <important point>
+
+Important Concepts:
+- <concept>
+- <concept>
+- <concept>
+
+Exam Focus:
+- <likely exam question or comparison>
+- <likely exam question or application>
+- <likely exam question or definition>
+
+Quick Revision:
+<2-3 short sentences that students can revise quickly>
+
+Rules:
+- No giant paragraphs.
+- Use short bullets and student-friendly language.
+- Focus on definitions, differences, examples, applications, and exam-relevant facts.
+- Do not copy long passages from the input.
+- Do not include prompt labels such as Input, Task, or Format.
+
+Study material:
+${text}`,
     maxTokens: 1024,
     routes: [models.pdfPrimary, models.pdfFallback],
   })
@@ -309,7 +343,12 @@ Each item must have this exact shape:
   "explanation": "Brief explanation in one or two plain text sentences."
 }
 
-Formatting rules: Use plain text only inside JSON string values. Do not use markdown. Do not use bullet points. Do not use asterisks. Do not use bold markers. Do not use LaTeX syntax. Do not include symbols like $ or \\rightarrow.
+Content rules:
+- Include only actual study concepts from the material.
+- Never include prompt labels or instruction words such as Input, Task, Format, Output, Rules, or Study material.
+- Use plain text only inside JSON string values.
+- Do not use markdown, bullet points, asterisks, bold markers, LaTeX syntax, or symbols like $ or \\rightarrow.
+- Keep each explanation short and revision-friendly.
 
 Study material:
 ${text}`,
@@ -324,7 +363,23 @@ export const generateExamQuestions = async (text) => {
   const models = getConfiguredModels()
   const { response } = await createCompletionWithFallback({
     taskName: 'quiz-generation',
-    content: `Create 3 multiple choice exam questions based on this study material. Format each question as JSON:\n{\n  "question": "Question text?",\n  "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],\n  "correctAnswer": "A) Option 1"\n}\n\nReturn ONLY valid JSON array format, no extra text.\n\n${text}\n\nQuestions:`,
+    content: `Create 3 multiple choice exam questions based on this study material.
+
+Return ONLY a valid JSON array. Each item must have this exact shape:
+{
+  "question": "Question text?",
+  "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
+  "correctAnswer": "A) Option 1",
+  "explanation": "One short sentence explaining why the answer is correct."
+}
+
+Rules:
+- Ask exam-oriented questions about important definitions, differences, uses, or examples.
+- Do not reveal answers outside the JSON field.
+- Do not include extra text before or after the JSON.
+
+Study material:
+${text}`,
     maxTokens: 1024,
     routes: [models.quiz],
   })
@@ -346,16 +401,24 @@ const cleanConceptText = (value) => {
     .trim()
 }
 
+const PROMPT_LEAKAGE_PATTERN = /^(input|task|format|output|rules?|study material|instructions?|return only|json|example)\b\s*:?\s*/i
+
+const containsPromptLeakage = (value) => {
+  const cleaned = cleanConceptText(value)
+  return !cleaned || PROMPT_LEAKAGE_PATTERN.test(cleaned)
+}
+
 const formatConcept = (concept, index) => {
   const rawTitle = typeof concept === 'string' ? concept : concept?.title
   const rawExplanation = typeof concept === 'string' ? '' : concept?.explanation
   const title = cleanConceptText(rawTitle).replace(/^Concept\s+\d+:\s*/i, '')
   const explanation = cleanConceptText(rawExplanation)
 
+  if (containsPromptLeakage(title) || (explanation && containsPromptLeakage(explanation))) return null
   if (!title && !explanation) return null
-  if (!explanation) return `Concept ${index + 1}: ${title}`
+  if (!explanation) return title
 
-  return `Concept ${index + 1}: ${title}\n${explanation}`
+  return `${title}\n${explanation}`
 }
 
 const parseConceptJson = (text) => {
@@ -380,7 +443,7 @@ const parsePlainTextConcepts = (text) => {
     .split(/\n{2,}|\n(?=\s*(?:Concept\s+\d+|\d+[.)]))/i)
     .map((block, index) => {
       const cleanedBlock = cleanConceptText(block)
-      if (!cleanedBlock) return null
+      if (!cleanedBlock || containsPromptLeakage(cleanedBlock)) return null
 
       const conceptMatch = cleanedBlock.match(/^Concept\s+\d+:\s*(.+?)(?:\s+-\s+|\s+:\s+)?(.+)?$/i)
       if (conceptMatch) {

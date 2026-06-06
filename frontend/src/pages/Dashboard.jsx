@@ -69,9 +69,9 @@ export default function Dashboard() {
         <div className="section-title">Your Study Materials</div>
         
         {loading ? (
-          <p>Loading your materials...</p>
+          <p className="muted-state">Loading your materials...</p>
         ) : materials.length === 0 ? (
-          <p>No study materials found. Upload a PDF to get started!</p>
+          <p className="muted-state">No study materials found. Upload a PDF to get started.</p>
         ) : (
           <div className="doc-list">
             {materials.map((doc, i) => (
@@ -85,31 +85,31 @@ export default function Dashboard() {
                 <div className="doc-info">
                   <div className="doc-name">{doc.title}</div>
                   <div className="doc-meta">
-                    {new Date(doc.createdAt).toLocaleDateString()} · {doc.concepts?.length || 0} Concepts
+                    {new Date(doc.createdAt).toLocaleDateString()} · {doc.concepts?.length || 0} Concepts · {doc.quizQuestions?.length || 0} Questions
                   </div>
                   {doc.status === 'processing' && (
-                    <div style={{ fontSize: '0.85rem', color: '#ff9800', marginTop: '4px', fontWeight: 'bold' }}>
+                    <div className="doc-status-text processing">
                       ⏳ Processing AI Insights...
                     </div>
                   )}
                   {doc.status === 'failed' && (
-                    <div style={{ fontSize: '0.85rem', color: '#d9534f', marginTop: '4px', fontWeight: 'bold' }}>
+                    <div className="doc-status-text failed">
                       {doc.processingError || 'Processing Failed'}
                     </div>
                   )}
                   {doc.status === 'completed' && doc.summary && (
-                    <div style={{ fontSize: '0.85rem', color: '#666', marginTop: '4px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    <div className="doc-summary-preview">
                       {doc.summary}
                     </div>
                   )}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-                  <span className="doc-badge" style={{ backgroundColor: doc.status === 'processing' ? '#ff9800' : doc.status === 'failed' ? '#d9534f' : '#28a745' }}>
+                <div className="doc-actions">
+                  <span className={`doc-badge ${doc.status || 'completed'}`}>
                     {doc.status === 'processing' ? 'Processing' : doc.status === 'failed' ? 'Failed' : 'Ready'}
                   </span>
                   <button 
                     onClick={(e) => handleDelete(doc._id, e)}
-                    style={{ background: 'transparent', border: '1px solid #ff4d4f', color: '#ff4d4f', borderRadius: '4px', padding: '4px 8px', cursor: 'pointer', fontSize: '0.8rem' }}
+                    className="doc-delete-btn"
                   >
                     Delete
                   </button>
@@ -120,7 +120,7 @@ export default function Dashboard() {
         )}
 
         {selectedDocId && (
-          <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <div className="dashboard-modal-overlay">
              <AISummary pdfId={selectedDocId} onClose={() => setSelectedDocId(null)} />
           </div>
         )}

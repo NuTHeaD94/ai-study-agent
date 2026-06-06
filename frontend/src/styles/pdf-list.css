@@ -1,7 +1,7 @@
 .pdf-list {
   background: #fff;
-  border-radius: 12px;
-  padding: 30px;
+  border-radius: 8px;
+  padding: 24px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
@@ -15,7 +15,7 @@
 .empty-message {
   text-align: center;
   color: #999;
-  padding: 40px 20px;
+  padding: 28px 16px;
   font-size: 15px;
 }
 
@@ -34,10 +34,11 @@
 
 .pdf-item {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  align-items: flex-start;
+  gap: 14px;
   padding: 16px;
   background: #f8f9fa;
+  border: 1px solid #edf0f3;
   border-radius: 8px;
   transition: all 0.3s ease;
   animation: slideIn 0.3s ease;
@@ -80,17 +81,62 @@
 .pdf-meta {
   font-size: 13px;
   color: #999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.badge-processed {
+.badge-status {
   display: inline-block;
-  margin-left: 8px;
   padding: 2px 8px;
-  background: #e8f5e9;
-  color: #2e7d32;
   border-radius: 12px;
   font-size: 11px;
   font-weight: 600;
+}
+
+.status-completed {
+  background: #e8f5e9;
+  color: #2e7d32;
+}
+
+.status-processing {
+  background: #fff4df;
+  color: #a65f00;
+}
+
+.status-failed {
+  background: #ffe0e0;
+  color: #c00;
+}
+
+.status-new {
+  background: #eef0f3;
+  color: #58606b;
+}
+
+.pdf-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin-top: 12px;
+}
+
+.pdf-info-grid span {
+  min-width: 0;
+  color: #4b5563;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.pdf-info-grid strong {
+  display: block;
+  color: #111827;
+  font-size: 11px;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
 }
 
 .pdf-actions {
@@ -172,13 +218,20 @@
 
 @media (max-width: 768px) {
   .pdf-list {
-    padding: 20px;
+    padding: 18px;
   }
   
   .pdf-item {
-    flex-direction: column;
-    align-items: flex-start;
     gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .pdf-details {
+    flex: 1 1 calc(100% - 44px);
+  }
+
+  .pdf-info-grid {
+    grid-template-columns: 1fr;
   }
 
   .pdf-actions {

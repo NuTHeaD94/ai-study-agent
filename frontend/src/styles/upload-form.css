@@ -1,8 +1,8 @@
 .upload-form {
   background: #fff;
-  border-radius: 12px;
-  padding: 30px;
-  margin-bottom: 30px;
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 0;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
@@ -51,7 +51,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 40px;
+  min-height: 150px;
+  padding: 28px;
   border: 2px dashed #3498db;
   border-radius: 8px;
   background: #f0f7ff;
@@ -94,8 +95,9 @@
 }
 
 .file-info {
-  padding: 12px;
+  padding: 12px 14px;
   background: #f8f9fa;
+  border: 1px solid #edf0f3;
   border-radius: 8px;
   font-size: 14px;
   color: #555;
@@ -111,12 +113,12 @@
 
 @media (max-width: 768px) {
   .upload-form {
-    padding: 20px;
-    margin-bottom: 20px;
+    padding: 18px;
   }
   
   .file-label {
-    padding: 20px;
+    min-height: 120px;
+    padding: 18px;
     font-size: 14px;
     text-align: center;
   }
