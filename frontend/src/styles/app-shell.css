@@ -8,6 +8,52 @@
   min-height: 0;
 }
 
+.sidebar-account {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 8px 10px;
+  align-items: center;
+  margin: auto 12px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sidebar-account-avatar {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(91, 91, 240, 0.12);
+  font-size: 16px;
+}
+
+.sidebar-account-text {
+  min-width: 0;
+}
+
+.sidebar-account-name,
+.sidebar-account-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-account-name {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sidebar-account-email {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
 .sidebar-nav ul {
   display: flex;
   flex-direction: column;
@@ -26,7 +72,8 @@
 }
 
 .sidebar-logout {
-  margin: auto 12px 0;
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
   padding: 10px 14px;
   border: 0;
   border-radius: 10px;
@@ -65,10 +112,10 @@
 
   .sidebar {
     height: auto;
-    min-height: 108px;
+    min-height: 0;
     flex-direction: column;
     align-items: stretch;
-    gap: 10px;
+    gap: 8px;
     padding: 12px 16px;
   }
 
@@ -113,15 +160,37 @@
     font-size: 14px;
   }
 
+  .sidebar-account {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    margin: 0;
+    padding: 8px 10px;
+    gap: 8px;
+  }
+
+  .sidebar-account-avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    font-size: 14px;
+  }
+
+  .sidebar-account-name {
+    font-size: 12px;
+  }
+
+  .sidebar-account-email {
+    font-size: 11px;
+  }
+
   .sidebar-logout {
-    flex: 0 0 auto;
+    grid-column: auto;
     margin: 0;
     padding: 8px 10px;
     white-space: nowrap;
   }
 
   .main-content {
-    margin-top: 108px;
+    margin-top: 168px;
     overflow-x: hidden;
   }
 
@@ -134,6 +203,16 @@
 @media (max-width: 420px) {
   .sidebar {
     padding-inline: 12px;
+  }
+
+  .sidebar-account {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+
+  .sidebar-logout {
+    grid-column: 1 / -1;
+    width: 100%;
+    text-align: center;
   }
 
   .sidebar-nav ul {

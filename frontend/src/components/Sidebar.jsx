@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { logout } from '../utils/auth'
+import { getUser, logout } from '../utils/auth'
 
 const navItems = [
   { label: 'Dashboard', to: '/dashboard' },
@@ -8,6 +8,9 @@ const navItems = [
 
 export default function Sidebar() {
   const navigate = useNavigate()
+  const user = getUser()
+  const displayName = user?.name?.trim() || user?.email || 'Account'
+  const displayEmail = user?.email || ''
 
   const handleLogout = () => {
     logout()
@@ -20,10 +23,6 @@ export default function Sidebar() {
         <div className="sidebar-logo">
           Study<span>AI</span>
         </div>
-
-        <button type="button" className="sidebar-logout" onClick={handleLogout}>
-          Logout
-        </button>
       </div>
 
       <nav className="sidebar-nav" aria-label="Main navigation">
@@ -37,6 +36,19 @@ export default function Sidebar() {
           ))}
         </ul>
       </nav>
+
+      <section className="sidebar-account" aria-label="Current account">
+        <div className="sidebar-account-avatar" aria-hidden="true">👤</div>
+        <div className="sidebar-account-text">
+          <div className="sidebar-account-name">{displayName}</div>
+          {displayEmail && user?.name && (
+            <div className="sidebar-account-email">{displayEmail}</div>
+          )}
+        </div>
+        <button type="button" className="sidebar-logout" onClick={handleLogout}>
+          Logout
+        </button>
+      </section>
     </aside>
   )
 }
