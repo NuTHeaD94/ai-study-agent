@@ -304,6 +304,7 @@ const createCompletionWithFallback = async ({ taskName, content, maxTokens, rout
 
 export const generateSummary = async (text) => {
   const models = getConfiguredModels()
+  console.log(`[AI:pdf-summary] Using configured provider=${models.pdfPrimary.provider} model=${models.pdfPrimary.model}`)
   const result = await createCompletionWithFallback({
     taskName: 'pdf-summary',
     content: `Create an exam-friendly study summary from the material below.
@@ -350,6 +351,7 @@ ${text}`,
 
 export const generateKeyConcepts = async (text) => {
   const models = getConfiguredModels()
+  console.log(`[AI:concept-generation] Using configured provider=${models.concept.provider} model=${models.concept.model}`)
   const { response, provider, model } = await createCompletionWithFallback({
     taskName: 'concept-generation',
     content: `You are a JSON-only study concept extractor.
@@ -416,6 +418,7 @@ ${text}`,
 
 export const generateExamQuestions = async (text) => {
   const models = getConfiguredModels()
+  console.log(`[AI:quiz-generation] Using configured provider=${models.quiz.provider} model=${models.quiz.model}`)
   const { response, provider, model } = await createCompletionWithFallback({
     taskName: 'quiz-generation',
     content: `You are a JSON-only exam quiz generator.
@@ -935,6 +938,7 @@ const getRelevantChunks = (question, chunks, maxChunks = 3) => {
 
 export const generateChatResponse = async (question, chatHistory = [], chunks = []) => {
   const models = getConfiguredModels()
+  console.log(`[AI:chat] Using configured provider=${models.chat.provider} model=${models.chat.model}`)
   const relevantContext = getRelevantChunks(question, chunks)
 
   const messages = [
