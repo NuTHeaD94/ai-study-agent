@@ -115,6 +115,8 @@ const logRawAIResponse = (taskName, response) => {
   console.log(`[AI:${taskName}] Raw response end`)
 }
 
+const getParseErrorMessage = (error) => error?.message || String(error || 'Unknown parsing error')
+
 const createGroqCompletion = async ({ taskName, content, maxTokens, model, messages }) => {
   const groqClient = getGroqClient()
 
@@ -367,10 +369,39 @@ ${text}`,
 
   console.log(`[AI:concept-generation] Completed with provider=${provider} model=${model}`)
   logRawAIResponse('concept-generation', response)
-  const concepts = parseKeyConcepts(response)
+  let parseResult = parseKeyConcepts(response)
+
+  if (!parseResult.success) {
+    console.warn(`[AI:concept-generation] Parse failed: ${parseResult.error}`)
+    try {
+      const repairedResponse = await repairJsonResponse({
+        taskName: 'concept-repair',
+        rawResponse: response,
+        route: { provider, model },
+        schemaDescription: `[
+  {
+    "title": "Data Structure",
+    "explanation": "A way of organizing data efficiently."
+  }
+]`,
+      })
+      logRawAIResponse('concept-repair', repairedResponse)
+      parseResult = parseKeyConcepts(repairedResponse)
+      if (!parseResult.success) {
+        console.warn(`[AI:concept-generation] Repair parse failed: ${parseResult.error}`)
+      }
+    } catch (error) {
+      console.warn(`[AI:concept-generation] Repair request failed: ${getErrorSummary(error)}`)
+    }
+  }
+
+  const concepts = parseResult.items
   console.log(`[AI:concept-generation] Parsed concepts count=${concepts.length}`)
 
-  return concepts
+  return {
+    items: concepts,
+    error: parseResult.success ? null : 'Concepts could not be generated cleanly. Please reprocess this PDF.',
+  }
 }
 
 export const generateExamQuestions = async (text) => {
@@ -405,10 +436,64 @@ ${text}`,
 
   console.log(`[AI:quiz-generation] Completed with provider=${provider} model=${model}`)
   logRawAIResponse('quiz-generation', response)
-  const questions = parseExamQuestions(response)
+  let parseResult = parseExamQuestions(response)
+
+  if (!parseResult.success) {
+    console.warn(`[AI:quiz-generation] Parse failed: ${parseResult.error}`)
+    try {
+      const repairedResponse = await repairJsonResponse({
+        taskName: 'quiz-repair',
+        rawResponse: response,
+        route: { provider, model },
+        schemaDescription: `[
+  {
+    "question": "What is data?",
+    "options": ["Processed information", "Raw fact or value", "A set of entities", "An entity set"],
+    "answer": "Raw fact or value",
+    "explanation": "Data is raw fact before processing."
+  }
+]`,
+      })
+      logRawAIResponse('quiz-repair', repairedResponse)
+      parseResult = parseExamQuestions(repairedResponse)
+      if (!parseResult.success) {
+        console.warn(`[AI:quiz-generation] Repair parse failed: ${parseResult.error}`)
+      }
+    } catch (error) {
+      console.warn(`[AI:quiz-generation] Repair request failed: ${getErrorSummary(error)}`)
+    }
+  }
+
+  const questions = parseResult.items
   console.log(`[AI:quiz-generation] Parsed quiz count=${questions.length}`)
 
-  return questions
+  return {
+    items: questions,
+    error: parseResult.success ? null : 'Quiz questions could not be generated cleanly. Please reprocess this PDF.',
+  }
+}
+
+const repairJsonResponse = async ({ taskName, rawResponse, route, schemaDescription }) => {
+  const { response } = await createCompletionWithFallback({
+    taskName,
+    content: `Convert this response into valid JSON only.
+
+Return ONLY a JSON array matching this shape:
+${schemaDescription}
+
+Rules:
+- Do not add markdown fences.
+- Do not add explanations outside JSON.
+- Do not include prompt/debug text.
+- Preserve only useful study content from the response.
+
+Response to convert:
+${rawResponse}`,
+    maxTokens: 1024,
+    routes: [route],
+  })
+
+  return response
 }
 
 const cleanConceptText = (value) => {
@@ -445,97 +530,134 @@ const formatConcept = (concept, index) => {
   return `${title}\n${explanation}`
 }
 
-const parseConceptJson = (text) => {
-  const parsed = parseJsonPayload(text)
-  const conceptItems = Array.isArray(parsed) ? parsed : parsed?.concepts
-  if (!Array.isArray(conceptItems)) return null
-
-  return conceptItems
-      .map(formatConcept)
-      .filter(Boolean)
-      .slice(0, 8)
-}
-
-const parsePlainTextConcepts = (text) => {
-  return text
-    .split(/\n{2,}|\n(?=\s*(?:Concept\s+\d+|\d+[.)]))/i)
-    .map((block, index) => {
-      const cleanedBlock = cleanConceptText(block)
-      if (!cleanedBlock || containsPromptLeakage(cleanedBlock)) return null
-
-      const conceptMatch = cleanedBlock.match(/^Concept\s+\d+:\s*(.+?)(?:\s+-\s+|\s+:\s+)?(.+)?$/i)
-      if (conceptMatch) {
-        return formatConcept({
-          title: conceptMatch[1],
-          explanation: conceptMatch[2] || '',
-        }, index)
-      }
-
-      return formatConcept(cleanedBlock, index)
-    })
-    .filter(Boolean)
-    .slice(0, 8)
-}
-
 const parseKeyConcepts = (text) => {
-  const jsonConcepts = parseConceptJson(text)
-  if (jsonConcepts && jsonConcepts.length > 0) {
-    return jsonConcepts
+  const parseResult = parseJsonPayload(text)
+  if (!parseResult.success) return parseResult
+
+  const conceptItems = Array.isArray(parseResult.value) ? parseResult.value : parseResult.value?.concepts
+  if (!Array.isArray(conceptItems)) {
+    return {
+      success: false,
+      items: [],
+      error: 'Parsed JSON did not contain a concept array.',
+    }
   }
 
-  console.warn('[AI:concept-generation] Failed to parse clean concept JSON. Returning safe fallback.')
-  return [
-    'Concepts unavailable\nThe AI response could not be parsed cleanly. Please reprocess this PDF.',
-  ]
+  const concepts = conceptItems
+    .map(formatConcept)
+    .filter(Boolean)
+    .slice(0, 8)
+
+  if (concepts.length === 0) {
+    return {
+      success: false,
+      items: [],
+      error: 'Concept JSON array had no valid title/explanation items after validation.',
+    }
+  }
+
+  return {
+    success: true,
+    items: concepts,
+    error: null,
+  }
 }
 
 const stripCodeFences = (text) => {
   return String(text || '')
-    .replace(/^\s*```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/i, '')
+    .replace(/```(?:json)?/gi, '')
+    .replace(/```/g, '')
     .trim()
 }
 
 const removeTrailingCommas = (text) => text.replace(/,\s*([}\]])/g, '$1')
 
-const extractJsonCandidate = (text) => {
-  const cleaned = stripCodeFences(text)
-  if (!cleaned) return ''
+const extractBalancedJsonCandidates = (text, opener, closer) => {
+  const candidates = []
+  const source = stripCodeFences(text)
+  let depth = 0
+  let start = -1
+  let inString = false
+  let escaped = false
 
-  const firstArray = cleaned.indexOf('[')
-  const firstObject = cleaned.indexOf('{')
-  const starts = [firstArray, firstObject].filter(index => index >= 0)
-  if (starts.length === 0) return cleaned
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
 
-  const start = Math.min(...starts)
-  const opener = cleaned[start]
-  const closer = opener === '[' ? ']' : '}'
-  const end = cleaned.lastIndexOf(closer)
-
-  return end > start ? cleaned.slice(start, end + 1) : cleaned
-}
-
-const parseJsonPayload = (text) => {
-  const attempts = [
-    stripCodeFences(text),
-    extractJsonCandidate(text),
-    removeTrailingCommas(extractJsonCandidate(text)),
-  ].filter(Boolean)
-
-  for (const attempt of attempts) {
-    try {
-      const parsed = JSON.parse(attempt)
-      if (typeof parsed === 'string') {
-        const nested = parseJsonPayload(parsed)
-        if (nested) return nested
+    if (inString) {
+      if (escaped) {
+        escaped = false
+      } else if (char === '\\') {
+        escaped = true
+      } else if (char === '"') {
+        inString = false
       }
-      return parsed
-    } catch {
-      // Try the next cleaned candidate.
+      continue
+    }
+
+    if (char === '"') {
+      inString = true
+      continue
+    }
+
+    if (char === opener) {
+      if (depth === 0) start = index
+      depth += 1
+    } else if (char === closer) {
+      depth -= 1
+      if (depth === 0 && start >= 0) {
+        candidates.push(source.slice(start, index + 1))
+        start = -1
+      }
     }
   }
 
-  return null
+  return candidates
+}
+
+const parseJsonAttempt = (candidate) => {
+  const cleaned = removeTrailingCommas(stripCodeFences(candidate))
+  const parsed = JSON.parse(cleaned)
+  if (typeof parsed === 'string') {
+    const nestedResult = parseJsonPayload(parsed)
+    if (nestedResult.success) return nestedResult.value
+  }
+  return parsed
+}
+
+const parseJsonPayload = (text) => {
+  const raw = stripCodeFences(text)
+  const attempts = [
+    raw,
+    removeTrailingCommas(raw),
+    ...extractBalancedJsonCandidates(raw, '[', ']'),
+    ...extractBalancedJsonCandidates(raw, '{', '}'),
+    ...extractBalancedJsonCandidates(raw, '[', ']').map(removeTrailingCommas),
+    ...extractBalancedJsonCandidates(raw, '{', '}').map(removeTrailingCommas),
+  ].filter(Boolean)
+  const uniqueAttempts = [...new Set(attempts)]
+  const errors = []
+
+  for (const attempt of uniqueAttempts) {
+    try {
+      return {
+        success: true,
+        value: parseJsonAttempt(attempt),
+        items: [],
+        error: null,
+      }
+    } catch (error) {
+      errors.push(getParseErrorMessage(error))
+    }
+  }
+
+  return {
+    success: false,
+    value: null,
+    items: [],
+    error: errors.length > 0
+      ? `JSON parse attempts failed: ${[...new Set(errors)].join(' | ')}`
+      : 'No JSON array candidate found in AI response.',
+  }
 }
 
 const cleanQuizText = (value) => {
@@ -570,20 +692,39 @@ const normalizeQuizQuestion = (question) => {
 }
 
 const parseExamQuestions = (text) => {
-  const parsed = parseJsonPayload(text)
-  const questionItems = Array.isArray(parsed)
-    ? parsed
-    : parsed?.questions || parsed?.quizQuestions || parsed?.quiz
+  const parseResult = parseJsonPayload(text)
+  if (!parseResult.success) return parseResult
+
+  const questionItems = Array.isArray(parseResult.value)
+    ? parseResult.value
+    : parseResult.value?.questions || parseResult.value?.quizQuestions || parseResult.value?.quiz
 
   if (!Array.isArray(questionItems)) {
-    console.warn('[AI:quiz-generation] Failed to parse quiz JSON array.')
-    return []
+    return {
+      success: false,
+      items: [],
+      error: 'Parsed JSON did not contain a quiz array.',
+    }
   }
 
-  return questionItems
+  const questions = questionItems
     .map(normalizeQuizQuestion)
     .filter(Boolean)
     .slice(0, 3)
+
+  if (questions.length === 0) {
+    return {
+      success: false,
+      items: [],
+      error: 'Quiz JSON array had no valid question/options/answer items after validation.',
+    }
+  }
+
+  return {
+    success: true,
+    items: questions,
+    error: null,
+  }
 }
 
 export const processTextWithAI = async (text) => {
@@ -598,8 +739,12 @@ export const processTextWithAI = async (text) => {
 
     return {
       summary,
-      keyConcepts: concepts,
-      examQuestions: questions,
+      keyConcepts: concepts.items,
+      examQuestions: questions.items,
+      aiErrors: {
+        concepts: concepts.error,
+        quiz: questions.error,
+      },
     }
   } catch (error) {
     if (error instanceof AIModelError) {

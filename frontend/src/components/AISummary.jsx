@@ -282,6 +282,10 @@ export default function AISummary({ pdfId, onClose }) {
                       )}
                     </li>
                 ))
+              ) : result.aiErrors?.concepts ? (
+                <div className="generation-warning">
+                  {result.aiErrors.concepts}
+                </div>
               ) : (
                 <p>No concepts extracted</p>
               )}
@@ -360,7 +364,7 @@ export default function AISummary({ pdfId, onClose }) {
                 })
               ) : (
                 <div className="generation-warning">
-                  Quiz questions could not be generated cleanly for this PDF. Please reprocess the document and check the backend quiz logs.
+                  {result.aiErrors?.quiz || 'Quiz questions could not be generated cleanly for this PDF. Please reprocess the document.'}
                 </div>
               )}
             </div>

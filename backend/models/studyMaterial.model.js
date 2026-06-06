@@ -37,6 +37,16 @@ const studyMaterialSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    aiErrors: {
+      concepts: {
+        type: String,
+        default: null,
+      },
+      quiz: {
+        type: String,
+        default: null,
+      },
+    },
     chunks: [
       {
         type: String,

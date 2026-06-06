@@ -67,6 +67,7 @@ export const processPDF = async (req, res, next) => {
           concepts: aiResults.keyConcepts,
           quizQuestions: aiResults.examQuestions,
           processingError: null,
+          aiErrors: aiResults.aiErrors,
           uploadedBy: req.user._id,
         })
         console.log(`[processPDF] Direct processing successful. Material ID: ${result._id}. Saved quizQuestions=${aiResults.examQuestions?.length || 0}`)

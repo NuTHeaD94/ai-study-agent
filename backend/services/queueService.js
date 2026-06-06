@@ -44,6 +44,7 @@ const worker = new Worker(
         quizQuestions: aiResults.examQuestions,
         status: 'completed',
         processingError: null,
+        aiErrors: aiResults.aiErrors,
       })
 
       console.log(`[Worker] Job ${job.id} completed successfully. Saved quizQuestions=${aiResults.examQuestions?.length || 0}. Status updated to completed.`)
