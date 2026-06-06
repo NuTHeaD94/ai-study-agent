@@ -634,7 +634,7 @@ const parseJsonAttempt = (candidate) => {
   return parsed
 }
 
-const parseJsonPayload = (text) => {
+const getJsonParseAttempts = (text) => {
   const raw = stripCodeFences(text)
   const attempts = [
     raw,
@@ -644,7 +644,12 @@ const parseJsonPayload = (text) => {
     ...extractBalancedJsonCandidates(raw, '[', ']').map(removeTrailingCommas),
     ...extractBalancedJsonCandidates(raw, '{', '}').map(removeTrailingCommas),
   ].filter(Boolean)
-  const uniqueAttempts = [...new Set(attempts)]
+
+  return [...new Set(attempts)]
+}
+
+const parseJsonPayload = (text) => {
+  const uniqueAttempts = getJsonParseAttempts(text)
   const errors = []
 
   for (const attempt of uniqueAttempts) {
@@ -667,6 +672,59 @@ const parseJsonPayload = (text) => {
     error: errors.length > 0
       ? `JSON parse attempts failed: ${[...new Set(errors)].join(' | ')}`
       : 'No JSON array candidate found in AI response.',
+  }
+}
+
+const looksLikeQuizQuestion = (value) => {
+  return !!(
+    value &&
+    typeof value === 'object' &&
+    (value.question || value.prompt || value.q) &&
+    (value.options || value.choices || value.answers)
+  )
+}
+
+const getQuizItemsFromParsedValue = (value) => {
+  if (Array.isArray(value)) return value
+  return value?.questions || value?.quizQuestions || value?.quiz || value?.items
+}
+
+const parseQuizJsonPayload = (text) => {
+  const uniqueAttempts = getJsonParseAttempts(text)
+  const errors = []
+  const rejectedCandidates = []
+
+  for (const attempt of uniqueAttempts) {
+    try {
+      const parsed = parseJsonAttempt(attempt)
+      const quizItems = getQuizItemsFromParsedValue(parsed)
+      const isQuizPayload = Array.isArray(quizItems) && quizItems.some(looksLikeQuizQuestion)
+
+      if (isQuizPayload) {
+        return {
+          success: true,
+          value: parsed,
+          items: [],
+          error: null,
+        }
+      }
+
+      rejectedCandidates.push(Array.isArray(parsed)
+        ? `array length=${parsed.length}; firstType=${typeof parsed[0]}`
+        : `type=${typeof parsed}; keys=${parsed && typeof parsed === 'object' ? Object.keys(parsed).join(',') : 'n/a'}`)
+    } catch (error) {
+      errors.push(getParseErrorMessage(error))
+    }
+  }
+
+  return {
+    success: false,
+    value: null,
+    items: [],
+    error: [
+      errors.length > 0 ? `JSON parse attempts failed: ${[...new Set(errors)].join(' | ')}` : null,
+      rejectedCandidates.length > 0 ? `Rejected non-quiz JSON candidates: ${rejectedCandidates.join(' | ')}` : null,
+    ].filter(Boolean).join(' ') || 'No quiz JSON candidate found in AI response.',
   }
 }
 
@@ -771,14 +829,20 @@ const normalizeQuizQuestion = (question, index) => {
 }
 
 const parseExamQuestions = (text) => {
-  const parseResult = parseJsonPayload(text)
+  const parseResult = parseQuizJsonPayload(text)
   if (!parseResult.success) return parseResult
 
   logParsedValue('quiz-generation', 'Parsed quiz JSON value', parseResult.value)
 
-  const questionItems = Array.isArray(parseResult.value)
-    ? parseResult.value
-    : parseResult.value?.questions || parseResult.value?.quizQuestions || parseResult.value?.quiz || parseResult.value?.items
+  const questionItems = getQuizItemsFromParsedValue(parseResult.value)
+
+  console.log('[AI:quiz-generation] parsedQuiz =')
+  console.log(questionItems)
+  console.log('[AI:quiz-generation] parsedQuiz[0] =')
+  console.log(questionItems?.[0])
+  console.log('[AI:quiz-generation] parsedQuiz[0].options =')
+  console.log(questionItems?.[0]?.options)
+  console.log(`[AI:quiz-generation] typeof parsedQuiz = ${typeof questionItems}`)
 
   if (!Array.isArray(questionItems)) {
     return {
