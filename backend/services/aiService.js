@@ -75,26 +75,6 @@ const getErrorSummary = (error) => {
   return `status=${status}; message=${message}`
 }
 
-const selectRepresentativeText = (text, maxLength = 15000) => {
-  const source = String(text || '').trim()
-  if (source.length <= maxLength) return source
-
-  const sectionLength = Math.floor(maxLength / 3)
-  const start = source.slice(0, sectionLength)
-  const middleStart = Math.max(0, Math.floor(source.length / 2) - Math.floor(sectionLength / 2))
-  const middle = source.slice(middleStart, middleStart + sectionLength)
-  const end = source.slice(-sectionLength)
-
-  return [
-    'Document beginning:',
-    start,
-    'Document middle:',
-    middle,
-    'Document end:',
-    end,
-  ].join('\n\n')
-}
-
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms))
 
 const getModelRequestRetries = () => {
@@ -355,99 +335,51 @@ const createCompletionWithFallback = async ({ taskName, content, maxTokens, rout
   })
 }
 
-const getSummaryPrompt = (text) => `You are a study assistant creating a useful exam revision summary.
-
-Write only the final summary. Do not repeat these instructions. Do not describe the format. Do not include placeholder text.
-
-Requirements:
-- 250 to 400 words maximum.
-- Use headings exactly named Topic, Key Points, Important Concepts, Exam Focus, and Quick Revision.
-- Use short bullet points under Key Points, Important Concepts, and Exam Focus.
-- Use the actual subject matter from the study material.
-- Focus on definitions, differences, examples, applications, and exam-relevant facts.
-- Do not include code blocks, markdown fences, angle-bracket placeholders, or prompt labels such as Input, Task, Format, Rules, or Study material.
-
-Study material:
-${text}`
-
-const SUMMARY_TEMPLATE_LEAKAGE_PATTERN = /(<main topic>|<important point>|<concept>|<likely exam|250[-–]400 words maximum|use only this format|no giant paragraphs|short bullets, student-friendly|no prompt labels|study material provided|exam-friendly study summary|rules:|input:|task:|format:|```)/i
-
-const cleanSummaryResponse = (summary = '') => {
-  return String(summary)
-    .replace(/```[\s\S]*?```/g, block => block.replace(/```[a-z]*|```/gi, ''))
-    .replace(/^\s*(Input|Task|Format|Rules|Study material)\s*:.*$/gim, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-}
-
-const validateSummaryResponse = (summary = '') => {
-  const cleaned = cleanSummaryResponse(summary)
-  const requiredHeadings = ['Topic:', 'Key Points:', 'Important Concepts:', 'Exam Focus:', 'Quick Revision:']
-  const missingHeadings = requiredHeadings.filter(heading => !cleaned.toLowerCase().includes(heading.toLowerCase()))
-
-  if (!cleaned) {
-    return { success: false, summary: '', error: 'Summary response was empty.' }
-  }
-
-  if (SUMMARY_TEMPLATE_LEAKAGE_PATTERN.test(cleaned)) {
-    return { success: false, summary: cleaned, error: 'Summary response contained prompt/template leakage.' }
-  }
-
-  if (missingHeadings.length > 1) {
-    return { success: false, summary: cleaned, error: `Summary response missed required headings: ${missingHeadings.join(', ')}` }
-  }
-
-  return { success: true, summary: cleaned, error: null }
-}
-
-const getSummaryFallbackNotice = () => `Topic: Summary unavailable
-
-Key Points:
-- The summary could not be generated cleanly for this PDF.
-- Please reprocess this document after checking the extracted PDF text.
-
-Important Concepts:
-- Use the Concepts tab if concepts were generated successfully.
-
-Exam Focus:
-- Review the source PDF directly until a clean summary is available.
-
-Quick Revision:
-This summary was not saved because the AI response contained prompt or template text.`
-
 export const generateSummary = async (text) => {
   const models = getConfiguredModels()
-  const summaryText = selectRepresentativeText(text, 15000)
   console.log(`[AI:pdf-summary] Using configured provider=${models.pdfPrimary.provider} model=${models.pdfPrimary.model}`)
-  let result = await createCompletionWithFallback({
+  const result = await createCompletionWithFallback({
     taskName: 'pdf-summary',
-    content: getSummaryPrompt(summaryText),
+    content: `Create an exam-friendly study summary from the material below.
+
+Return 250-400 words maximum.
+Use ONLY this format:
+
+Topic: <main topic>
+
+Key Points:
+- <important point>
+- <important point>
+- <important point>
+- <important point>
+
+Important Concepts:
+- <concept>
+- <concept>
+- <concept>
+
+Exam Focus:
+- <likely exam question or comparison>
+- <likely exam question or application>
+- <likely exam question or definition>
+
+Quick Revision:
+<2-3 short sentences that students can revise quickly>
+
+Rules:
+- No giant paragraphs.
+- Use short bullets and student-friendly language.
+- Focus on definitions, differences, examples, applications, and exam-relevant facts.
+- Do not copy long passages from the input.
+- Do not include prompt labels such as Input, Task, or Format.
+
+Study material:
+${text}`,
     maxTokens: 1024,
     routes: [models.pdfPrimary, models.pdfFallback],
   })
 
-  let validation = validateSummaryResponse(result.response)
-
-  if (!validation.success) {
-    console.warn(`[AI:pdf-summary] Validation failed with provider=${result.provider} model=${result.model}: ${validation.error}`)
-    console.warn(`[AI:pdf-summary] Retrying summary with fallback provider=${models.pdfFallback.provider} model=${models.pdfFallback.model}`)
-    try {
-      result = await createCompletionWithFallback({
-        taskName: 'pdf-summary-fallback',
-        content: getSummaryPrompt(summaryText),
-        maxTokens: 1024,
-        routes: [models.pdfFallback],
-      })
-      validation = validateSummaryResponse(result.response)
-      if (!validation.success) {
-        console.warn(`[AI:pdf-summary-fallback] Validation failed: ${validation.error}`)
-      }
-    } catch (error) {
-      console.warn(`[AI:pdf-summary-fallback] Request failed: ${getErrorSummary(error)}`)
-    }
-  }
-
-  return validation.success ? validation.summary : getSummaryFallbackNotice()
+  return result.response
 }
 
 const getConceptPrompt = (text) => `You are a JSON-only study concept extractor.
@@ -999,10 +931,10 @@ const parseExamQuestions = (text) => {
 
 export const processTextWithAI = async (text) => {
   try {
-    // Limit concepts and quiz input while summary chooses a representative large-document sample.
+    // Limit text length to avoid hitting token limits even with chunking.
     const textToProcess = text.substring(0, 15000)
     console.log('[AI:pdf-processing] Starting summary generation')
-    const summary = await generateSummary(text)
+    const summary = await generateSummary(textToProcess)
     console.log('[AI:pdf-processing] Starting concepts generation')
     const concepts = await generateKeyConcepts(textToProcess)
     console.log('[AI:pdf-processing] Starting quiz generation')

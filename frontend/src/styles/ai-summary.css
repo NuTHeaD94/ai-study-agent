@@ -472,6 +472,18 @@
   color: #e5e7eb;
 }
 
+.summary-text.markdown-content pre {
+  background: #f6f7fb;
+  color: #333;
+  border-color: #e1e5ee;
+  white-space: pre-wrap;
+}
+
+.summary-text.markdown-content pre code {
+  color: inherit;
+  white-space: pre-wrap;
+}
+
 .chat-tab {
   height: 100%;
   min-height: 0;
