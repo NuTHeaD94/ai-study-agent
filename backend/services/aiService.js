@@ -41,7 +41,7 @@ const getConfiguredModels = () => ({
   },
   concept: {
     provider: process.env.CONCEPT_PROVIDER || DEFAULT_CONCEPT_PROVIDER,
-    model: process.env.CONCEPT_MODEL || DEFAULT_CONCEPT_MODEL,
+    model: process.env.CONCEPTS_MODEL || process.env.CONCEPT_MODEL || DEFAULT_CONCEPT_MODEL,
   },
   chat: {
     provider: process.env.CHAT_PROVIDER || DEFAULT_CHAT_PROVIDER,
